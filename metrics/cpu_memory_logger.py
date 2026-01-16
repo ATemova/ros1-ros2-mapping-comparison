@@ -1,17 +1,67 @@
+#!/usr/bin/env python3
+
 import psutil
 import time
 import csv
 import argparse
+import signal
+import sys
+from datetime import datetime
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--output", required=True)
+# Argument parsing
+parser = argparse.ArgumentParser(description="CPU and memory usage logger")
+parser.add_argument("--output", required=True, help="Path to output CSV file")
+parser.add_argument("--ros_version", required=True, choices=["ROS1", "ROS2"],
+                    help="ROS version used during the experiment")
+parser.add_argument("--interval", type=float, default=1.0,
+                    help="Logging interval in seconds (default: 1.0)")
 args = parser.parse_args()
 
-with open(args.output, "w", newline="") as f:
-    writer = csv.writer(f)
-    writer.writerow(["time", "cpu_percent", "memory_mb"])
+# Graceful shutdown handling
+running = True
 
-    while True:
-        cpu = psutil.cpu_percent(interval=1)
-        mem = psutil.virtual_memory().used / (1024 * 1024)
-        writer.writerow([time.time(), cpu, mem])
+def handle_signal(sig, frame):
+    global running
+    running = False
+
+signal.signal(signal.SIGINT, handle_signal)
+signal.signal(signal.SIGTERM, handle_signal)
+
+# CSV initialization
+start_time = time.time()
+start_time_iso = datetime.utcnow().isoformat()
+
+try:
+    with open(args.output, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "timestamp",
+            "elapsed_time_sec",
+            "cpu_percent",
+            "memory_mb",
+            "ros_version"
+        ])
+
+        # Logging loop
+        while running:
+            cpu = psutil.cpu_percent(interval=args.interval)
+            mem = psutil.virtual_memory().used / (1024 * 1024)
+
+            current_time = time.time()
+            elapsed = current_time - start_time
+
+            writer.writerow([
+                current_time,
+                round(elapsed, 3),
+                round(cpu, 2),
+                round(mem, 2),
+                args.ros_version
+            ])
+
+            f.flush()
+
+except IOError as e:
+    print(f"Error writing to output file: {e}", file=sys.stderr)
+    sys.exit(1)
+
+print("CPU and memory logging stopped cleanly.")
