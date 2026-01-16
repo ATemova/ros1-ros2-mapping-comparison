@@ -10,6 +10,9 @@ DURATION=300
 
 mkdir -p "${OUTPUT_DIR}"
 
+# Archive parameters
+cp ros2/params/*.yaml "${OUTPUT_DIR}/" 2>/dev/null || true
+
 echo "Experiment ID: ${EXPERIMENT_ID}"
 echo "Output directory: ${OUTPUT_DIR}"
 
