@@ -6,14 +6,11 @@ This repository contains experiment scripts, configuration files, and analysis t
 
 The goal of this work is to empirically evaluate differences between ROS1 and ROS2 mapping pipelines under controlled, repeatable real-world conditions.
 
----
-
 ## Overview
 
 The Robot Operating System (ROS) is widely used in mobile robotics. While ROS1 has been the dominant middleware for many years, ROS2 introduces architectural changes intended to improve performance, reliability, and scalability. As robotics systems transition from ROS1 to ROS2, it is important to understand how these changes affect practical deployment scenarios such as mapping.
 
 This project provides a system-level comparison of ROS1 and ROS2 mapping pipelines using identical hardware, sensor configurations, and experimental conditions on a real mobile robot.
-
 
 ## Experimental Scope
 
