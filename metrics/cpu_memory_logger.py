@@ -13,6 +13,8 @@ parser = argparse.ArgumentParser(description="CPU and memory usage logger")
 parser.add_argument("--output", required=True, help="Path to output CSV file")
 parser.add_argument("--ros_version", required=True, choices=["ROS1", "ROS2"],
                     help="ROS version used during the experiment")
+parser.add_argument("--experiment_id", required=True,
+                    help="Unique experiment identifier")
 parser.add_argument("--interval", type=float, default=1.0,
                     help="Logging interval in seconds (default: 1.0)")
 args = parser.parse_args()
@@ -35,11 +37,12 @@ try:
     with open(args.output, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "timestamp",
+            "timestamp_unix",
             "elapsed_time_sec",
-            "cpu_percent",
+            "cpu_percent_total",
             "memory_mb",
-            "ros_version"
+            "ros_version",
+            "experiment_id"
         ])
 
         # Logging loop
@@ -51,11 +54,12 @@ try:
             elapsed = current_time - start_time
 
             writer.writerow([
-                current_time,
+                round(current_time, 3),
                 round(elapsed, 3),
                 round(cpu, 2),
                 round(mem, 2),
-                args.ros_version
+                args.ros_version,
+                args.experiment_id
             ])
 
             f.flush()
