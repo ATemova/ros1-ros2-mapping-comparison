@@ -20,3 +20,8 @@
 ## Map Evaluation
 - Mapping quality is evaluated based on consistency across multiple runs
 - Qualitative comparison is performed using occupancy grid images
+
+## Notes
+- All experiments are executed for a fixed duration.
+- The robot follows a repeatable trajectory during each run.
+- ROS1 and ROS2 experiments are conducted under identical conditions.
