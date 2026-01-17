@@ -30,3 +30,20 @@ Each experiment run is logged with timestamped outputs and archived parameters t
 ## Status
 
 This project is under active development. Results and figures will be added as experiments are completed and analyzed.
+
+## Running Experiments
+
+Experiments are executed using the provided shell scripts:
+
+- `experiments/run_ros1.sh`
+- `experiments/run_ros2.sh`
+
+Each script automatically:
+- creates a unique experiment identifier
+- archives mapping parameters
+- logs CPU and memory usage
+- stores outputs in a structured results directory
+
+## Limitations
+
+This study focuses on system-level behavior and qualitative mapping outcomes. It does not aim to benchmark SLAM accuracy or provide statistical guarantees across diverse environments. These aspects are considered future work.
