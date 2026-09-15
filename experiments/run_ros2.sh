@@ -4,7 +4,7 @@ set -uo pipefail
 # --- Resolve repo root so the script works from any cwd / Docker mount ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-cd "${REPO_ROOT}"
+cd "${REPO_ROOT}" || exit 1
 
 echo "Starting ROS2 mapping experiment"
 

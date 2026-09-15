@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (shell, python, yaml)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck --severity=warning experiments/*.sh
+      - name: bash syntax
+        run: for f in experiments/*.sh; do bash -n "$f"; done
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: python compile
+        run: python -m py_compile metrics/*.py plots/*.py ros2/launch/mapping.launch.py
+      - name: yaml parse
+        run: |
+          python -m pip install --quiet pyyaml
+          python - <<'PY'
+          import glob, yaml
+          for f in glob.glob("ros1/params/*.yaml") + glob.glob("ros2/params/*.yaml"):
+              yaml.safe_load(open(f)); print("ok", f)
+          PY
+
+  pipeline-smoke:
+    name: Analysis pipeline (no ROS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install deps
+        run: python -m pip install --quiet -r metrics/requirements.txt
+      - name: log -> summarize -> plot
+        run: |
+          set -e
+          RUN=results/raw/ros2/ci_smoke
+          mkdir -p "$RUN"
+          timeout 6 python metrics/cpu_memory_logger.py \
+            --output "$RUN/cpu_mem.csv" --experiment_id ci_smoke \
+            --ros_version ROS2 --interval 1 || true
+          test -s "$RUN/cpu_mem.csv"
+          python metrics/summarize_metrics.py "$RUN/cpu_mem.csv"
+          python plots/plot_cpu.py "$RUN/cpu_mem.csv"
+          python plots/plot_memory.py "$RUN/cpu_mem.csv"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-smoke-plots
+          path: results/raw/ros2/ci_smoke/*.png
+          if-no-files-found: error
+
+  ros2-smoke:
+    name: ROS2 run (humble container)
+    runs-on: ubuntu-latest
+    container: ros:humble
+    steps:
+      - name: install git for checkout
+        run: apt-get update && apt-get install -y git
+      - uses: actions/checkout@v4
+      - name: install psutil
+        run: apt-get install -y python3-psutil
+      - name: run_ros2.sh (short)
+        run: |
+          chmod +x experiments/*.sh
+          DURATION=8 ./experiments/run_ros2.sh
+      - name: verify output
+        run: |
+          csv=$(ls -t results/raw/ros2/*/cpu_mem.csv | head -1)
+          test -s "$csv"
+          python3 metrics/summarize_metrics.py "$csv"
+
+  ros1-smoke:
+    name: ROS1 run (noetic container)
+    runs-on: ubuntu-latest
+    container: ros:noetic
+    steps:
+      - name: install git for checkout
+        run: apt-get update && apt-get install -y git
+      - uses: actions/checkout@v4
+      - name: install psutil
+        run: apt-get install -y python3-psutil
+      - name: run_ros1.sh (short)
+        run: |
+          chmod +x experiments/*.sh
+          DURATION=8 ./experiments/run_ros1.sh
+      - name: verify output
+        run: |
+          csv=$(ls -t results/raw/ros1/*/cpu_mem.csv | head -1)
+          test -s "$csv"
+          python3 metrics/summarize_metrics.py "$csv"
+
+  docker-build:
+    name: Build Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build ros1 image
+        run: docker build -f docker/Dockerfile.ros1 -t ros1-mapping .
+      - name: build ros2 image
+        run: docker build -f docker/Dockerfile.ros2 -t ros2-mapping .
