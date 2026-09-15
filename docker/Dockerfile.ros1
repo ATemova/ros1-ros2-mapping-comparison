@@ -1,0 +1,15 @@
+# ROS1 Noetic environment for the mapping experiments.
+# Build:  docker build -f docker/Dockerfile.ros1 -t ros1-mapping .
+# Run:    docker run -it --rm -v "$PWD":/work -w /work ros1-mapping ./experiments/run_ros1.sh
+FROM ros:noetic
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3-psutil \
+      python3-pandas \
+      python3-matplotlib \
+      ros-noetic-map-server \
+      ros-noetic-slam-gmapping \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+CMD ["bash"]

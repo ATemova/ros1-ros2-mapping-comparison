@@ -1,0 +1,14 @@
+# ROS2 Humble environment for the mapping experiments.
+# Build:  docker build -f docker/Dockerfile.ros2 -t ros2-mapping .
+# Run:    docker run -it --rm -v "$PWD":/work -w /work ros2-mapping ./experiments/run_ros2.sh
+FROM ros:humble
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3-psutil \
+      python3-pandas \
+      python3-matplotlib \
+      ros-humble-slam-toolbox \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+CMD ["bash"]

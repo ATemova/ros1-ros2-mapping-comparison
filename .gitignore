@@ -1,0 +1,23 @@
+# Python virtual environments
+venv/
+.venv/
+env/
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+__MACOSX/
+
+# ROS build/log artifacts
+build/
+devel/
+install/
+log/
+*.log
+
+# Generated plots (keep source data, not renders)
+plots/*.png
+results/**/*.png

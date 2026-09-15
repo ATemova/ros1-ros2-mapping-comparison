@@ -11,7 +11,7 @@
 
 This repository contains experimental scripts, configuration files, and analysis tools used in the study:
 
-**“A Practical Comparison of ROS1 and ROS2 Mapping Pipelines on a Real Mobile Robot”**
+**"A Practical Comparison of ROS1 and ROS2 Mapping Pipelines on a Real Mobile Robot"**
 
 The objective of this work is to empirically evaluate the differences between ROS1 and ROS2 mapping pipelines under controlled, repeatable real-world conditions.
 
@@ -26,50 +26,110 @@ This project provides a system-level comparison of ROS1 and ROS2 mapping pipelin
 
 The comparison focuses on:
 
-- System-level performance (CPU and memory utilization)  
-- Runtime stability during mapping execution  
-- Qualitative consistency of generated maps  
+- System-level performance (CPU and memory utilization)
+- Runtime stability during mapping execution
+- Qualitative consistency of generated maps
 
 Experiments are conducted on a real mobile robot operating in a controlled indoor environment. All runs follow fixed trajectories and identical environmental conditions to ensure a fair and reproducible comparison.
 
+## Repository Layout
+
+```
+experiments/   run_ros1.sh, run_ros2.sh  -> orchestrate a single experiment run
+ros1/          launch/ + params/         -> ROS1 mapping launch (fill in your LiDAR + SLAM nodes)
+ros2/          launch/ + params/         -> ROS2 slam_toolbox launch
+metrics/       cpu_memory_logger.py, summarize_metrics.py, requirements.txt
+plots/         plot_cpu.py, plot_memory.py, plot_maps.py
+results/raw/   per-run output (cpu_mem.csv, archived params)
+docker/        Dockerfile.ros1, Dockerfile.ros2
+```
+
+## Prerequisites
+
+- **ROS1 runs:** ROS1 Noetic (Ubuntu 20.04) — natively on the robot, or via the `ros:noetic` container.
+- **ROS2 runs:** ROS2 Humble (Ubuntu 22.04) — natively on the robot, or via the `ros:humble` container.
+- Python packages: see `metrics/requirements.txt` (`psutil`, `pandas`, `matplotlib`). On ROS images install them with apt: `apt-get install -y python3-psutil python3-pandas python3-matplotlib`. `summarize_metrics.py` uses only the standard library and needs none of them.
+- A 2D LiDAR is required only for **live mapping runs**. The pipeline and metrics/analysis can be exercised without hardware.
+
+> ROS1 Noetic does not run natively on macOS, and ROS2 Humble is not officially supported there either. On a Mac, use the Docker workflow below (pipeline testing only — a container cannot access USB/serial LiDAR hardware).
+
+## Quick Start (Docker)
+
+Run each command from the repository root. Build the image once, then run.
+
+ROS1:
+
+```
+docker build -f docker/Dockerfile.ros1 -t ros1-mapping .
+docker run -it --rm -v "$PWD":/work -w /work ros1-mapping ./experiments/run_ros1.sh
+```
+
+ROS2:
+
+```
+docker build -f docker/Dockerfile.ros2 -t ros2-mapping .
+docker run -it --rm -v "$PWD":/work -w /work ros2-mapping ./experiments/run_ros2.sh
+```
+
+The run scripts resolve their own location and `cd` to the repo root, so they work regardless of the calling directory — but the Docker `-v "$PWD":/work` mount must point at the repository root (the folder containing `experiments/`), not its parent.
+
+Use a shorter duration while testing: `-e DURATION=20`.
+
+## Running Experiments (native)
+
+On a machine with ROS already installed:
+
+```
+source /opt/ros/noetic/setup.bash
+./experiments/run_ros1.sh
+```
+
+```
+source /opt/ros/humble/setup.bash
+./experiments/run_ros2.sh
+```
+
+Each script:
+
+- Resolves the repo root and creates a timestamped output directory under `results/raw/`
+- Sources ROS if it is not already sourced (`ROS_DISTRO` overridable)
+- Ensures `psutil` is available (installs `python3-psutil` if missing)
+- Launches the mapping pipeline by file path (no catkin/ament package build required)
+- Logs CPU and memory to `cpu_mem.csv`
+- Archives the mapping parameters used for the run
+
+Run duration defaults to 300 s and is overridable: `DURATION=60 ./experiments/run_ros1.sh`.
+
+> The ROS1 launch file (`ros1/launch/mapping.launch`) is a placeholder. Add your LiDAR driver and SLAM nodes there. The ROS2 launch starts `slam_toolbox` when it is installed and otherwise logs a notice and continues, so the pipeline can be smoke tested without SLAM packages.
+
+## Analysis
+
+Summarize a run (standard library only — runs in any ROS image):
+
+```
+python3 metrics/summarize_metrics.py results/raw/ros1/<run_id>/cpu_mem.csv
+```
+
+Plot CPU / memory (needs `pandas` + `matplotlib`; pass a CSV path, or `--ros ros1|ros2` for the latest run):
+
+```
+python3 plots/plot_cpu.py --ros ros1
+python3 plots/plot_memory.py --ros ros2
+python3 plots/plot_maps.py path/to/map.pgm
+```
+
+Plots are written as PNGs next to the source CSV.
+
 ## Reproducibility
 
-This repository provides configuration files and experiment scripts to support reproducibility on similar mobile robot platforms equipped with a 2D LiDAR sensor.
-No proprietary firmware or internal company code is included.
+This repository provides configuration files and experiment scripts to support reproducibility on similar mobile robot platforms equipped with a 2D LiDAR sensor. No proprietary firmware or internal company code is included.
 
-Each experiment run:
-- Generates a unique experiment identifier  
-- Archives mapping parameters  
-- Logs system metrics (CPU and memory usage)  
-- Stores results in a structured directory format  
-
-All experiment outputs are timestamped to enable traceability and cross-run comparison.
-
-## Running Experiments
-
-Experiments are executed using the provided shell scripts:
-
-- `experiments/run_ros1.sh`  
-- `experiments/run_ros2.sh`  
-
-Each script automatically:
-- Initializes the mapping pipeline  
-- Records system resource usage  
-- Archives configuration parameters  
-- Stores logs and generated maps  
+Each experiment run generates a unique identifier, archives mapping parameters, logs system metrics, and stores results in a structured, timestamped directory.
 
 ## Limitations
 
-This study focuses on system-level behavior and qualitative mapping outcomes.
-
-It does not attempt to:
-- Benchmark SLAM accuracy quantitatively  
-- Provide statistical guarantees across diverse environments  
-- Evaluate large-scale deployment scenarios  
-
-These aspects are considered future work.
+This study focuses on system-level behavior and qualitative mapping outcomes. It does not attempt to benchmark SLAM accuracy quantitatively, provide statistical guarantees across diverse environments, or evaluate large-scale deployment scenarios. These aspects are considered future work.
 
 ## Status
 
-This project is under active development.  
-Results, figures, and detailed analysis will be added as experiments are completed and evaluated.
+This project is under active development. Results, figures, and detailed analysis will be added as experiments are completed and evaluated.

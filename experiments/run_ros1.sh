@@ -1,47 +1,94 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -uo pipefail
+
+# --- Resolve repo root so the script works from any cwd / Docker mount ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
 
 echo "Starting ROS1 mapping experiment"
 
-# Experiment configuration
-EXPERIMENT_ID=$(date +"%Y%m%d_%H%M%S")
+# --- Configuration ---
+EXPERIMENT_ID="$(date +"%Y%m%d_%H%M%S")"
 OUTPUT_DIR="results/raw/ros1/${EXPERIMENT_ID}"
-DURATION=300
-ROS_VERSION="ROS1"
+DURATION="${DURATION:-300}"
+ROS_LABEL="ROS1"
+LAUNCH_FILE="${REPO_ROOT}/ros1/launch/mapping.launch"
+
+ROSCORE_PID=""
+MAPPING_PID=""
+METRICS_PID=""
 
 mkdir -p "${OUTPUT_DIR}"
-
-# Archive parameters
 cp ros1/params/*.yaml "${OUTPUT_DIR}/" 2>/dev/null || true
 
 echo "Experiment ID: ${EXPERIMENT_ID}"
 echo "Output directory: ${OUTPUT_DIR}"
 echo "Duration: ${DURATION}s"
 
-# Cleanup handler
 cleanup() {
   echo "Stopping experiment processes..."
   kill ${METRICS_PID} ${MAPPING_PID} ${ROSCORE_PID} 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-# Start ROS core
+# --- Source ROS1 (idempotent; defaults to noetic) ---
+: "${ROS_DISTRO:=noetic}"
+# ROS setup scripts reference unset vars; relax nounset while sourcing.
+set +u
+if [ -z "${ROS_ROOT:-}" ] && [ -f "/opt/ros/${ROS_DISTRO}/setup.bash" ]; then
+  # shellcheck disable=SC1090
+  source "/opt/ros/${ROS_DISTRO}/setup.bash"
+fi
+# Source a local catkin workspace if one has been built.
+[ -f "devel/setup.bash" ] && source devel/setup.bash
+set -u
+
+if ! command -v roscore >/dev/null 2>&1; then
+  echo "ERROR: ROS1 not found on PATH." >&2
+  echo "       Run inside the ros:noetic container or 'source /opt/ros/noetic/setup.bash' first." >&2
+  exit 1
+fi
+
+# --- Ensure psutil is available for the metrics logger ---
+ensure_psutil() {
+  python3 -c "import psutil" 2>/dev/null && return 0
+  echo "psutil not found; attempting to install python3-psutil..."
+  if command -v apt-get >/dev/null 2>&1; then
+    { sudo apt-get update -qq && sudo apt-get install -y python3-psutil; } 2>/dev/null \
+      || { apt-get update -qq && apt-get install -y python3-psutil; } 2>/dev/null || true
+  fi
+  python3 -c "import psutil" 2>/dev/null && return 0
+  command -v pip3 >/dev/null 2>&1 && pip3 install psutil 2>/dev/null || true
+  python3 -c "import psutil" 2>/dev/null
+}
+
+# --- Start ROS core ---
 roscore &
 ROSCORE_PID=$!
 sleep 5
 
-# Start mapping
-roslaunch ros1 mapping.launch &
-MAPPING_PID=$!
-sleep 5
+# --- Start mapping (launch by absolute path; no catkin package required) ---
+if [ -f "${LAUNCH_FILE}" ]; then
+  roslaunch "${LAUNCH_FILE}" &
+  MAPPING_PID=$!
+  sleep 5
+else
+  echo "WARNING: ${LAUNCH_FILE} not found; skipping mapping launch." >&2
+fi
 
-# Start metrics logging
-python3 metrics/cpu_memory_logger.py \
-  --output "${OUTPUT_DIR}/cpu_mem.csv" \
-  --experiment_id "${EXPERIMENT_ID}" \
-  --ros_version "${ROS_VERSION}" &
-METRICS_PID=$!
+# --- Start metrics logging (non-fatal if psutil unavailable) ---
+if ensure_psutil; then
+  python3 metrics/cpu_memory_logger.py \
+    --output "${OUTPUT_DIR}/cpu_mem.csv" \
+    --experiment_id "${EXPERIMENT_ID}" \
+    --ros_version "${ROS_LABEL}" &
+  METRICS_PID=$!
+else
+  echo "WARNING: psutil unavailable; skipping CPU/memory logging." >&2
+fi
 
-# Run experiment
-sleep ${DURATION}
+# --- Run for the configured duration ---
+sleep "${DURATION}"
 
 echo "ROS1 experiment completed"
