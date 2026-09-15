@@ -1,6 +1,7 @@
-![CI](https://github.com/ATemova/ros1-ros2-mapping-comparison/actions/workflows/ci.yml/badge.svg)
-
 <p align="center">
+  <a href="https://github.com/ATemova/ros1-ros2-mapping-comparison/actions/workflows/ci.yml">
+    <img src="https://github.com/ATemova/ros1-ros2-mapping-comparison/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
   <img src="https://img.shields.io/badge/ROS1-Noetic-blue?style=flat-square&logo=ros" />
   <img src="https://img.shields.io/badge/ROS2-Humble-blueviolet?style=flat-square&logo=ros" />
   <img src="https://img.shields.io/badge/Sensor-2D%20LiDAR-informational?style=flat-square" />
