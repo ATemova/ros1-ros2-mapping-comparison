@@ -3,6 +3,7 @@
 
 import csv
 import sys
+from statistics import median
 
 
 def main():
@@ -24,12 +25,33 @@ def main():
         print("No data rows found in CSV.", file=sys.stderr)
         sys.exit(1)
 
-    print(
-        f"avg_cpu_percent,{sum(cpu) / len(cpu):.2f},"
-        f"max_cpu_percent,{max(cpu):.2f},"
-        f"avg_memory_mb,{sum(mem) / len(mem):.2f},"
-        f"max_memory_mb,{max(mem):.2f}"
-    )
+    avg_cpu = sum(cpu) / len(cpu)
+    median_cpu = median(cpu)
+    min_cpu = min(cpu)
+    max_cpu = max(cpu)
+
+    avg_memory = sum(mem) / len(mem)
+    median_memory = median(mem)
+    min_memory = min(mem)
+    max_memory = max(mem)
+
+    samples = len(cpu)
+
+    print("CPU")
+    print(f"  Average: {avg_cpu:.2f}%")
+    print(f"  Median:  {median_cpu:.2f}%")
+    print(f"  Minimum: {min_cpu:.2f}%")
+    print(f"  Maximum: {max_cpu:.2f}%")
+
+    print()
+    print("Memory")
+    print(f"  Average: {avg_memory:.2f} MB")
+    print(f"  Median:  {median_memory:.2f} MB")
+    print(f"  Minimum: {min_memory:.2f} MB")
+    print(f"  Maximum: {max_memory:.2f} MB")
+
+    print()
+    print(f"Samples: {samples}")
 
 
 if __name__ == "__main__":
