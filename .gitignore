@@ -21,3 +21,7 @@ log/
 # Generated plots (keep source data, not renders)
 plots/*.png
 results/**/*.png
+
+# Temporary metric test files
+metrics/test_ros1.csv
+metrics/test_ros2.csv
