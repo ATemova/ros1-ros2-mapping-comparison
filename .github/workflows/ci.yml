@@ -70,8 +70,8 @@ jobs:
       - name: install git for checkout
         run: apt-get update && apt-get install -y git
       - uses: actions/checkout@v4
-      - name: install psutil
-        run: apt-get install -y python3-psutil
+      - name: install dependencies
+        run: apt-get install -y python3-psutil ros-humble-slam-toolbox
       - name: run_ros2.sh (short)
         run: |
           chmod +x experiments/*.sh
@@ -90,8 +90,8 @@ jobs:
       - name: install git for checkout
         run: apt-get update && apt-get install -y git
       - uses: actions/checkout@v4
-      - name: install psutil
-        run: apt-get install -y python3-psutil
+      - name: install dependencies
+        run: apt-get update && apt-get install -y python3-psutil ros-noetic-gmapping
       - name: run_ros1.sh (short)
         run: |
           chmod +x experiments/*.sh

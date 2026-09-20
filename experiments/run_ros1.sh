@@ -73,8 +73,14 @@ if [ -f "${LAUNCH_FILE}" ]; then
   roslaunch "${LAUNCH_FILE}" &
   MAPPING_PID=$!
   sleep 5
+
+  if ! kill -0 "${MAPPING_PID}" 2>/dev/null; then
+    echo "ERROR: ROS1 mapping process failed to start." >&2
+    exit 1
+  fi
 else
-  echo "WARNING: ${LAUNCH_FILE} not found; skipping mapping launch." >&2
+  echo "WARNING: ${LAUNCH_FILE} not found" >&2
+  exit 1
 fi
 
 # --- Start metrics logging (non-fatal if psutil unavailable) ---
