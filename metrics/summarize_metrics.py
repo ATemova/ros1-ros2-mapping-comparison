@@ -10,7 +10,11 @@ def main():
         print("Usage: summarize_metrics.py <cpu_mem.csv>")
         sys.exit(1)
 
-    cpu, mem = read_metrics(sys.argv[1])
+    try:
+        cpu, mem = read_metrics(sys.argv[1])
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if not cpu:
         print("No data rows found in CSV.", file=sys.stderr)

@@ -35,8 +35,12 @@ def main():
     ros1_file = sys.argv[1]
     ros2_file = sys.argv[2]
 
-    ros1_cpu, ros1_mem = read_metrics(ros1_file)
-    ros2_cpu, ros2_mem = read_metrics(ros2_file)
+    try:
+        ros1_cpu, ros1_mem = read_metrics(ros1_file)
+        ros2_cpu, ros2_mem = read_metrics(ros2_file)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if not ros1_cpu or not ros2_cpu:
         print("One or both csv files contain invalid data")
