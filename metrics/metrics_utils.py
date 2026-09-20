@@ -7,16 +7,32 @@ def read_metrics(filename):
     cpu = []
     mem = []
 
-    with open(filename, newline="") as f:
-        reader = csv.DictReader(f)
+    try:
+        with open(filename, newline="") as f:
+            reader = csv.DictReader(f)
 
-        for row in reader:
-            try:
-                cpu.append(float(row["cpu_percent_total"]))
-                mem.append(float(row["memory_mb"]))
-            except (KeyError, ValueError):
-                continue
-        return cpu, mem
+            if reader.fieldnames is None:
+                raise ValueError("CSV file is empty or has no header")
+
+            required_columns = {"cpu_percent_total", "memory_mb"}
+
+            if not required_columns.issubset(reader.fieldnames):
+                raise ValueError(
+                    "CSV file is missing required columns: "
+                    "cpu_percent_total and/or memory_mb"
+                )
+
+            for row in reader:
+                try:
+                    cpu.append(float(row["cpu_percent_total"]))
+                    mem.append(float(row["memory_mb"]))
+                except (KeyError, ValueError):
+                    continue
+    except FileNotFoundError:
+        raise FileNotFoundError(f"CSV file not found: {filename}")
+            
+    return cpu, mem
+
 
 def calculate_stats(cpu, mem):
     return {

@@ -25,3 +25,6 @@ results/**/*.png
 # Temporary metric test files
 metrics/test_ros1.csv
 metrics/test_ros2.csv
+metrics/empty.csv
+metrics/bad_columns.csv
+metrics/invalid_data.csv
