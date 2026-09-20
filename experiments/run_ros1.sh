@@ -74,7 +74,8 @@ if [ -f "${LAUNCH_FILE}" ]; then
   MAPPING_PID=$!
   sleep 5
 else
-  echo "WARNING: ${LAUNCH_FILE} not found; skipping mapping launch." >&2
+  echo "WARNING: ${LAUNCH_FILE} not found" >&2
+  exit 1
 fi
 
 # --- Start metrics logging (non-fatal if psutil unavailable) ---
