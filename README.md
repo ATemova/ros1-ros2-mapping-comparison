@@ -27,16 +27,16 @@ This project provides a system-level comparison of ROS1 and ROS2 mapping pipelin
 
 ## Recent Improvements
 
-The experiment pipeline has been extended with additional validation, error handling, metric analysis, and ROS CI support:
+Recent development has focused on improving experiment validation, metric analysis, and ROS1/ROS2 CI testing:
 
-- Added a ROS1 GMapping launch configuration for CI and mapping pipeline startup tests.
-- Added ROS2 `slam_toolbox` dependencies for CI testing.
-- Added startup validation for ROS1 and ROS2 mapping processes.
-- Improved experiment launch error handling for missing or failed mapping launch files.
-- Improved metric input validation and error messages for missing, malformed, or invalid CSV files.
-- Refactored shared metric statistics used by the analysis scripts.
+- Improved metric summary statistics and analysis output.
 - Added ROS1 and ROS2 metric comparison support.
-- Added CI checks covering linting, metric analysis, ROS1/ROS2 smoke tests, dependency installation, and Docker image builds.
+- Improved metric input validation and error handling for missing, malformed, or invalid CSV files.
+- Improved experiment launch error handling for missing or failed launch files.
+- Added startup validation for ROS1 and ROS2 mapping processes.
+- Added ROS2 `slam_toolbox` dependencies for CI testing.
+- Added a ROS1 GMapping mapping node for CI testing.
+- Added temporary metric test files to `.gitignore`.
 
 ## Experimental Scope
 
