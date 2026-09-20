@@ -1,4 +1,14 @@
 <launch>
-  <!-- LiDAR -->
-  <!-- SLAM -->
+
+  <arg name="scan_topic" default="/scan" />
+
+  <node pkg="gmapping"
+        type="slam_gmapping"
+        name="slam_gmapping"
+        output="screen">
+
+    <remap from="scan" to="$(arg scan_topic)" />
+
+  </node>
+
 </launch>
