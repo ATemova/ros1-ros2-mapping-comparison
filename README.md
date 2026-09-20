@@ -25,6 +25,19 @@ The Robot Operating System (ROS) is widely adopted in mobile robotics. While ROS
 As robotics systems transition from ROS1 to ROS2, it becomes essential to understand how these architectural differences affect practical deployment scenarios such as real-time mapping.
 This project provides a system-level comparison of ROS1 and ROS2 mapping pipelines using identical hardware, sensor configurations, and experimental conditions on a real mobile robot.
 
+## Recent Improvements
+
+The experiment pipeline has been extended with additional validation, error handling, metric analysis, and ROS CI support:
+
+- Added a ROS1 GMapping launch configuration for CI and mapping pipeline startup tests.
+- Added ROS2 `slam_toolbox` dependencies for CI testing.
+- Added startup validation for ROS1 and ROS2 mapping processes.
+- Improved experiment launch error handling for missing or failed mapping launch files.
+- Improved metric input validation and error messages for missing, malformed, or invalid CSV files.
+- Refactored shared metric statistics used by the analysis scripts.
+- Added ROS1 and ROS2 metric comparison support.
+- Added CI checks covering linting, metric analysis, ROS1/ROS2 smoke tests, dependency installation, and Docker image builds.
+
 ## Experimental Scope
 
 The comparison focuses on:
@@ -39,9 +52,9 @@ Experiments are conducted on a real mobile robot operating in a controlled indoo
 
 ```
 experiments/   run_ros1.sh, run_ros2.sh  -> orchestrate a single experiment run
-ros1/          launch/ + params/         -> ROS1 mapping launch (fill in your LiDAR + SLAM nodes)
-ros2/          launch/ + params/         -> ROS2 slam_toolbox launch
-metrics/       cpu_memory_logger.py, summarize_metrics.py, requirements.txt
+ros1/          launch/ + params/         -> ROS1 GMapping launch and parameters
+ros2/          launch/ + params/         -> ROS2 slam_toolbox launch and parameters
+metrics/       logger + summary + comparison utilities
 plots/         plot_cpu.py, plot_memory.py, plot_maps.py
 results/raw/   per-run output (cpu_mem.csv, archived params)
 docker/        Dockerfile.ros1, Dockerfile.ros2
@@ -96,14 +109,14 @@ Each script:
 
 - Resolves the repo root and creates a timestamped output directory under `results/raw/`
 - Sources ROS if it is not already sourced (`ROS_DISTRO` overridable)
-- Ensures `psutil` is available (installs `python3-psutil` if missing)
+- Logs CPU and memory usage using `psutil`
 - Launches the mapping pipeline by file path (no catkin/ament package build required)
 - Logs CPU and memory to `cpu_mem.csv`
 - Archives the mapping parameters used for the run
 
 Run duration defaults to 300 s and is overridable: `DURATION=60 ./experiments/run_ros1.sh`.
 
-> The ROS1 launch file (`ros1/launch/mapping.launch`) is a placeholder. Add your LiDAR driver and SLAM nodes there. The ROS2 launch starts `slam_toolbox` when it is installed and otherwise logs a notice and continues, so the pipeline can be smoke tested without SLAM packages.
+> The ROS1 launch file (`ros1/launch/mapping.launch`) currently starts the GMapping SLAM node and expects LiDAR scan data on `/scan`. A LiDAR driver and sensor hardware are required for live mapping.
 
 ## Analysis
 
