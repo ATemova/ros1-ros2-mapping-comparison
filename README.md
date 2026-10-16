@@ -1,15 +1,11 @@
 <p align="center">
-  <a href="https://github.com/ATemova/ros1-ros2-mapping-comparison/actions/workflows/ci.yml">
-    <img src="https://github.com/ATemova/ros1-ros2-mapping-comparison/actions/workflows/ci.yml/badge.svg" alt="CI" />
-  </a>
-  <img src="https://img.shields.io/badge/ROS1-Noetic-blue?style=flat-square&logo=ros" />
-  <img src="https://img.shields.io/badge/ROS2-Humble-blueviolet?style=flat-square&logo=ros" />
-  <img src="https://img.shields.io/badge/Sensor-2D%20LiDAR-informational?style=flat-square" />
-  <img src="https://img.shields.io/badge/Platform-Mobile%20Robot-orange?style=flat-square" />
-  <img src="https://img.shields.io/badge/Study-System--Level%20Comparison-success?style=flat-square" />
-  <a href="https://github.com/ATemova/ros1-ros2-mapping-comparison/releases/tag/v0.1.0">
-    <img src="https://img.shields.io/badge/Release-v0.1.0-blue?style=flat-square" alt="Release v0.1.0" />
-  </a>
+  <a href="https://github.com/ATemova/ros1-ros2-mapping-comparison/actions/workflows/ci.yml"><img src="https://github.com/ATemova/ros1-ros2-mapping-comparison/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/ROS1-Noetic-blue?style=flat-square&logo=ros" alt="ROS1 Noetic" />
+  <img src="https://img.shields.io/badge/ROS2-Humble-blueviolet?style=flat-square&logo=ros" alt="ROS2 Humble" />
+  <img src="https://img.shields.io/badge/Sensor-2D%20LiDAR-informational?style=flat-square" alt="2D LiDAR" />
+  <img src="https://img.shields.io/badge/Platform-Mobile%20Robot-orange?style=flat-square" alt="Mobile Robot" />
+  <img src="https://img.shields.io/badge/Study-System--Level%20Comparison-success?style=flat-square" alt="System-Level Comparison" />
+  <a href="https://github.com/ATemova/ros1-ros2-mapping-comparison/releases/tag/v0.1.0"><img src="https://img.shields.io/badge/Release-v0.1.0-blue?style=flat-square" alt="Release v0.1.0" /></a>
   <img src="https://img.shields.io/badge/Status-v0.1.0%20early%20release%20%E2%80%93%20experiments%20in%20progress-yellow?style=flat-square" alt="Status: v0.1.0 – early release, experiments in progress" />
 </p>
 
