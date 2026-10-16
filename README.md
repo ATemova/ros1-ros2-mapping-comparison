@@ -7,7 +7,10 @@
   <img src="https://img.shields.io/badge/Sensor-2D%20LiDAR-informational?style=flat-square" />
   <img src="https://img.shields.io/badge/Platform-Mobile%20Robot-orange?style=flat-square" />
   <img src="https://img.shields.io/badge/Study-System--Level%20Comparison-success?style=flat-square" />
-  <img src="https://img.shields.io/badge/Status-Active%20Development-yellow?style=flat-square" />
+  <a href="https://github.com/ATemova/ros1-ros2-mapping-comparison/releases/tag/v0.1.0">
+    <img src="https://img.shields.io/badge/Release-v0.1.0-blue?style=flat-square" alt="Release v0.1.0" />
+  </a>
+  <img src="https://img.shields.io/badge/Status-v0.1.0%20early%20release%20%E2%80%93%20experiments%20in%20progress-yellow?style=flat-square" alt="Status: v0.1.0 – early release, experiments in progress" />
 </p>
 
 # ROS1 vs ROS2 Mapping Comparison
@@ -25,18 +28,8 @@ The Robot Operating System (ROS) is widely adopted in mobile robotics. While ROS
 As robotics systems transition from ROS1 to ROS2, it becomes essential to understand how these architectural differences affect practical deployment scenarios such as real-time mapping.
 This project provides a system-level comparison of ROS1 and ROS2 mapping pipelines using identical hardware, sensor configurations, and experimental conditions on a real mobile robot.
 
-## Recent Improvements
-
-Recent development has focused on improving experiment validation, metric analysis, and ROS1/ROS2 CI testing:
-
-- Improved metric summary statistics and analysis output.
-- Added ROS1 and ROS2 metric comparison support.
-- Improved metric input validation and error handling for missing, malformed, or invalid CSV files.
-- Improved experiment launch error handling for missing or failed launch files.
-- Added startup validation for ROS1 and ROS2 mapping processes.
-- Added ROS2 `slam_toolbox` dependencies for CI testing.
-- Added a ROS1 GMapping mapping node for CI testing.
-- Added temporary metric test files to `.gitignore`.
+> **Status: v0.1.0 – early release, experiments in progress.**
+> This release provides the experiment pipeline, configuration and analysis tooling. It contains no final results or findings. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Experimental Scope
 
@@ -48,24 +41,33 @@ The comparison focuses on:
 
 Experiments are conducted on a real mobile robot operating in a controlled indoor environment. All runs follow fixed trajectories and identical environmental conditions to ensure a fair and reproducible comparison.
 
-## Repository Layout
+## Repository structure
 
-```
-experiments/   run_ros1.sh, run_ros2.sh  -> orchestrate a single experiment run
-ros1/          launch/ + params/         -> ROS1 GMapping launch and parameters
-ros2/          launch/ + params/         -> ROS2 slam_toolbox launch and parameters
-metrics/       logger + summary + comparison utilities
-plots/         plot_cpu.py, plot_memory.py, plot_maps.py
-results/raw/   per-run output (cpu_mem.csv, archived params)
-docker/        Dockerfile.ros1, Dockerfile.ros2
-```
+| Path | Purpose |
+|---|---|
+| `experiments/` | Run scripts (`run_ros1.sh`, `run_ros2.sh`) that orchestrate one timestamped experiment run, plus protocol notes. |
+| `ros1/` | ROS1 Noetic GMapping launch file and parameters. |
+| `ros2/` | ROS2 Humble `slam_toolbox` launch file and parameters. |
+| `metrics/` | CPU/memory logger, summary and ROS1-vs-ROS2 comparison scripts (latency logger is a placeholder). |
+| `plots/` | Scripts that render CPU, memory and occupancy-grid map plots as PNGs. |
+| `results/raw/` | Per-run output (`cpu_mem.csv`, archived parameters), one folder per run ID. |
+| `docker/` | Dockerfiles for ROS1 Noetic and ROS2 Humble environments. |
+| `.github/workflows/` | CI: linting, analysis smoke test, ROS1/ROS2 container runs, Docker builds. |
 
-## Prerequisites
+## Requirements
 
-- **ROS1 runs:** ROS1 Noetic (Ubuntu 20.04) — natively on the robot, or via the `ros:noetic` container.
-- **ROS2 runs:** ROS2 Humble (Ubuntu 22.04) — natively on the robot, or via the `ros:humble` container.
-- Python packages: see `metrics/requirements.txt` (`psutil`, `pandas`, `matplotlib`). On ROS images install them with apt: `apt-get install -y python3-psutil python3-pandas python3-matplotlib`. `summarize_metrics.py` uses only the standard library and needs none of them.
-- A 2D LiDAR is required only for **live mapping runs**. The pipeline and metrics/analysis can be exercised without hardware.
+| Component | Version |
+|---|---|
+| OS | Ubuntu 20.04 (ROS1 Noetic), Ubuntu 22.04 (ROS2 Humble), or Docker on any host |
+| ROS1 | Noetic + `ros-noetic-slam-gmapping`, `ros-noetic-map-server` |
+| ROS2 | Humble + `ros-humble-slam-toolbox` |
+| Python | 3.8+ (3.8 on Noetic, 3.10 on Humble; CI uses 3.11) |
+| Python packages | `psutil`, `pandas`, `matplotlib` (`pip install -r requirements.txt`) |
+| Hardware | 2D LiDAR publishing on `/scan`, required only for live mapping runs |
+
+On ROS images, install the Python packages with apt instead: `apt-get install -y python3-psutil python3-pandas python3-matplotlib`. `summarize_metrics.py` and `compare_runs.py` use only the standard library.
+
+The pipeline, metrics and analysis can be exercised without hardware.
 
 > ROS1 Noetic does not run natively on macOS, and ROS2 Humble is not officially supported there either. On a Mac, use the Docker workflow below (pipeline testing only — a container cannot access USB/serial LiDAR hardware).
 
@@ -109,9 +111,8 @@ Each script:
 
 - Resolves the repo root and creates a timestamped output directory under `results/raw/`
 - Sources ROS if it is not already sourced (`ROS_DISTRO` overridable)
-- Logs CPU and memory usage using `psutil`
-- Launches the mapping pipeline by file path (no catkin/ament package build required)
-- Logs CPU and memory to `cpu_mem.csv`
+- Launches the mapping pipeline by file path (no catkin/ament package build required) and checks that it started
+- Logs system-wide CPU and memory usage (`psutil`) to `cpu_mem.csv`
 - Archives the mapping parameters used for the run
 
 Run duration defaults to 300 s and is overridable: `DURATION=60 ./experiments/run_ros1.sh`.
@@ -124,6 +125,12 @@ Summarize a run (standard library only — runs in any ROS image):
 
 ```
 python3 metrics/summarize_metrics.py results/raw/ros1/<run_id>/cpu_mem.csv
+```
+
+Compare a ROS1 run against a ROS2 run:
+
+```
+python3 metrics/compare_runs.py results/raw/ros1/<run_id>/cpu_mem.csv results/raw/ros2/<run_id>/cpu_mem.csv
 ```
 
 Plot CPU / memory (needs `pandas` + `matplotlib`; pass a CSV path, or `--ros ros1|ros2` for the latest run):
@@ -146,6 +153,18 @@ Each experiment run generates a unique identifier, archives mapping parameters, 
 
 This study focuses on system-level behavior and qualitative mapping outcomes. It does not attempt to benchmark SLAM accuracy quantitatively, provide statistical guarantees across diverse environments, or evaluate large-scale deployment scenarios. These aspects are considered future work.
 
+Known limitations of the current pipeline (v0.1.0):
+
+- The CPU/memory logger records system-wide usage, not per-process usage of the SLAM node.
+- The ROS1 launch file does not yet load `ros1/params/mapping.yaml`; GMapping runs with its default parameters, so ROS1 and ROS2 configurations are not yet aligned.
+- Maps are not yet saved automatically at the end of a run.
+- Message latency logging (`metrics/ros_latency_logger.py`) is a placeholder.
+- `results/raw/` contains only short pipeline test runs, not experimental data.
+
 ## Status
 
-This project is under active development. Results, figures, and detailed analysis will be added as experiments are completed and evaluated.
+**v0.1.0 – early release, experiments in progress.** The experiment pipeline and repository structure are in place. Experimental runs on the real robot, results, figures and analysis will be added in later releases. See [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+See [LICENSE](LICENSE).

@@ -1,0 +1,3 @@
+# Python packages imported by metrics/ and plots/.
+# ROS packages (launch, launch_ros, ament_index_python) come from the ROS2 install, not pip.
+-r metrics/requirements.txt

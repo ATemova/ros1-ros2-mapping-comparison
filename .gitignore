@@ -1,26 +1,50 @@
-# Python virtual environments
+
+# Python
 venv/
 .venv/
 env/
-
-# Python caches
 __pycache__/
 *.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ipynb_checkpoints/
 
-# macOS
-.DS_Store
-__MACOSX/
 
-# ROS build/log artifacts
+# ROS1 (catkin)
 build/
 devel/
+logs/
+.catkin_workspace
+.catkin_tools/
+CATKIN_IGNORE
+
+
+# ROS2 (colcon)
 install/
 log/
-*.log
+COLCON_IGNORE
 
-# Generated plots (keep source data, not renders)
+
+# ROS bags (large, keep outside the repo)
+*.bag
+*.bag.active
+*.db3
+*.db3-shm
+*.db3-wal
+*.mcap
+rosbag2_*/
+
+
+# Logs and large / generated result files
+*.log
 plots/*.png
 results/**/*.png
+results/**/*.pdf
+results/**/*.zip
+results/**/*.tar.gz
+results/raw/*/ci_smoke/
+
 
 # Temporary metric test files
 metrics/test_ros1.csv
@@ -28,3 +52,12 @@ metrics/test_ros2.csv
 metrics/empty.csv
 metrics/bad_columns.csv
 metrics/invalid_data.csv
+
+
+# OS / editors
+.DS_Store
+__MACOSX/
+.vscode/
+.idea/
+*.swp
+*~
