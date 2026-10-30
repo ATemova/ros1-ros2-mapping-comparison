@@ -27,8 +27,8 @@ This project provides a system-level comparison of ROS1 and ROS2 mapping pipelin
 
 The question is timely: ROS1 Noetic reached end of life in May 2025, ROS2 Humble is supported until May 2027 and ROS2 Jazzy until May 2029, so teams still on ROS1 are migrating now, and teams on Humble will move to Jazzy next. Within ROS2, the middleware (RMW) is a deployment choice of its own: Fast DDS (default), Cyclone DDS, or Zenoh. The study therefore compares ROS1 with ROS2, the two ROS2 LTS releases with each other, and the RMWs within ROS2, under normal and constrained (embedded-like) conditions.
 
-> **Status: v0.1.0 – early release, experiments in progress.**
-> This release provides the experiment pipeline, configuration and analysis tooling. It contains no final results or findings. See [CHANGELOG.md](CHANGELOG.md).
+> **Status: v0.1.0 released; v0.2.0 in development – experiments in progress.**
+> The repository provides the experiment pipeline, configuration and analysis tooling. It contains no final results or findings yet. See [CHANGELOG.md](CHANGELOG.md) (the *Unreleased* section lists everything since v0.1.0).
 
 ## Experimental Scope
 
@@ -76,7 +76,7 @@ Sensor data is recorded once on a real mobile robot in a controlled indoor envir
 | Python packages | `psutil`, `pandas`, `matplotlib` (`pip install -r requirements.txt`); bag tools: `rosbags` (`pip install -r experiments/requirements-bags.txt`, Python ≥ 3.10, included in the ROS2 image) |
 | Hardware | 2D LiDAR publishing on `/scan`, required only for recording bags and live runs |
 
-On ROS images, install the Python packages with apt instead: `apt-get install -y python3-psutil python3-pandas python3-matplotlib`. `summarize_metrics.py` and `compare_runs.py` use only the standard library.
+On ROS images, install the Python packages with apt instead: `apt-get install -y python3-psutil python3-numpy python3-yaml python3-pandas python3-matplotlib` (the Docker images already include them). `summarize_metrics.py`, `compare_runs.py` and `compare_groups.py` use only the standard library.
 
 The pipeline, metrics and analysis can be exercised without hardware.
 
@@ -263,7 +263,7 @@ Known limitations of the current pipeline:
 
 ## Status
 
-**v0.1.0 – early release, experiments in progress.** The experiment pipeline and repository structure are in place. Experimental runs on the real robot, results, figures and analysis will be added in later releases. See [CHANGELOG.md](CHANGELOG.md).
+**v0.1.0 released; v0.2.0 in development.** The experiment pipeline, metrics, statistics, reports and reproducibility tooling are in place and exercised in CI on a synthetic bag with ground truth. Experimental runs on the real robot, results and analysis will be added in later releases. See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
