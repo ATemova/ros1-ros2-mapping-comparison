@@ -7,6 +7,8 @@ abstract: >-
   mobile robot, including ROS2 middleware (Fast DDS, Cyclone DDS, Zenoh) and
   distribution (Humble, Jazzy) comparisons.
 type: software
+version: 0.2.0
+date-released: "2026-10-31"
 authors:
   - family-names: Temova
     given-names: Anastasija

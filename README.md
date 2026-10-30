@@ -6,8 +6,8 @@
   <img src="https://img.shields.io/badge/Sensor-2D%20LiDAR-informational?style=flat-square" alt="2D LiDAR" />
   <img src="https://img.shields.io/badge/Platform-Mobile%20Robot-orange?style=flat-square" alt="Mobile Robot" />
   <img src="https://img.shields.io/badge/Study-System--Level%20Comparison-success?style=flat-square" alt="System-Level Comparison" />
-  <a href="https://github.com/ATemova/ros1-ros2-mapping-comparison/releases/tag/v0.1.0"><img src="https://img.shields.io/badge/Release-v0.1.0-blue?style=flat-square" alt="Release v0.1.0" /></a>
-  <img src="https://img.shields.io/badge/Status-v0.1.0%20early%20release%20%E2%80%93%20experiments%20in%20progress-yellow?style=flat-square" alt="Status: v0.1.0 – early release, experiments in progress" />
+  <a href="https://github.com/ATemova/ros1-ros2-mapping-comparison/releases/tag/v0.2.0"><img src="https://img.shields.io/badge/Release-v0.2.0-blue?style=flat-square" alt="Release v0.2.0" /></a>
+  <img src="https://img.shields.io/badge/Status-v0.2.0%20pipeline%20complete%20%E2%80%93%20experiments%20in%20progress-yellow?style=flat-square" alt="Status: v0.2.0 – pipeline complete, experiments in progress" />
 </p>
 
 # ROS1 vs ROS2 Mapping Comparison
@@ -27,8 +27,8 @@ This project provides a system-level comparison of ROS1 and ROS2 mapping pipelin
 
 The question is timely: ROS1 Noetic reached end of life in May 2025, ROS2 Humble is supported until May 2027 and ROS2 Jazzy until May 2029, so teams still on ROS1 are migrating now, and teams on Humble will move to Jazzy next. Within ROS2, the middleware (RMW) is a deployment choice of its own: Fast DDS (default), Cyclone DDS, or Zenoh. The study therefore compares ROS1 with ROS2, the two ROS2 LTS releases with each other, and the RMWs within ROS2, under normal and constrained (embedded-like) conditions.
 
-> **Status: v0.1.0 released; v0.2.0 in development – experiments in progress.**
-> The repository provides the experiment pipeline, configuration and analysis tooling. It contains no final results or findings yet. See [CHANGELOG.md](CHANGELOG.md) (the *Unreleased* section lists everything since v0.1.0).
+> **Status: v0.2.0 – pipeline complete, experiments in progress.**
+> The repository provides the complete experiment pipeline, metrics, statistics and reporting, verified in CI on a synthetic bag with ground truth. It contains no results from the real robot yet. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Experimental Scope
 
@@ -263,7 +263,7 @@ Known limitations of the current pipeline:
 
 ## Status
 
-**v0.1.0 released; v0.2.0 in development.** The experiment pipeline, metrics, statistics, reports and reproducibility tooling are in place and exercised in CI on a synthetic bag with ground truth. Experimental runs on the real robot, results and analysis will be added in later releases. See [CHANGELOG.md](CHANGELOG.md).
+**v0.2.0 – pipeline complete, experiments in progress.** The experiment pipeline, metrics, statistics, reports and reproducibility tooling are in place and exercised in CI on a synthetic bag with ground truth (ROS1 Noetic; ROS2 Humble and Jazzy with Fast DDS, Cyclone DDS and Zenoh). Recordings from the real robot, the published dataset and results are planned for the next release. See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

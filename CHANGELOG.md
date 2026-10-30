@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed (first CI run on real ROS)
+## [0.2.0] - 2026-10-31
+
+Complete experiment pipeline; still no final results. Both stacks now run the same SLAM
+algorithm with identical, verified parameters on identical recorded input, repeated and
+compared statistically. New metrics cover per-process resources, latency, trajectory error
+and map accuracy. The comparison extends to ROS2 middlewares (Fast DDS, Cyclone DDS, Zenoh),
+ROS2 Humble vs Jazzy and stress conditions. Runs are reproducible through the Makefile, with
+per-run manifests and generated reports. CI replays a synthetic bag with ground truth through
+ROS1 and through ROS2 Humble and Jazzy with every RMW.
+
+### Fixed (found by the first CI runs on real ROS)
 
 - ROS2 map saving: when slam_toolbox's `save_map` service does not write the map (its internal `map_saver_cli` gives up after 2 s, seen with Fast DDS on Jazzy), the runner retries with `map_saver_cli` directly (10 s timeout, transient-local subscription).
 - `time_to_first_map_s` used the ROS-clock receive time of the first scan, which is 0 when scans arrive before the first `/clock` message; it now uses the first scan's header stamp. Other ROS-clock metrics skip events received before `/clock`.
@@ -94,4 +104,8 @@ First public release of the experimental framework. Experiments and analysis are
 - `.gitignore` extended for Python, ROS1 (catkin), ROS2 (colcon), ROS bags (`*.bag`, `*.db3`, `*.mcap`) and large generated result files.
 - README: version/status badge, "Requirements" and "Repository structure" sections, known limitations; the "Recent Improvements" list moved into this changelog.
 - `metrics/compare_runs.py` marked executable.
+
+[Unreleased]: https://github.com/ATemova/ros1-ros2-mapping-comparison/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ATemova/ros1-ros2-mapping-comparison/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/ATemova/ros1-ros2-mapping-comparison/releases/tag/v0.1.0
 
