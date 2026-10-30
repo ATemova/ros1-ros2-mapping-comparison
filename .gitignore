@@ -26,7 +26,10 @@ log/
 COLCON_IGNORE
 
 
-# ROS bags (large, keep outside the repo)
+# ROS bags (large, keep outside git; data/bags/ is the replay input folder)
+data/bags/*
+!data/bags/.gitkeep
+data/release/
 *.bag
 *.bag.active
 *.db3
@@ -44,6 +47,12 @@ results/**/*.pdf
 results/**/*.zip
 results/**/*.tar.gz
 results/raw/*/ci_smoke/
+
+# Run outputs stay local; publish final results with `make dataset` (docs/dataset.md),
+# or add a specific run deliberately with `git add -f`.
+results/raw/
+results/reports/
+results/report.md
 
 
 # Temporary metric test files
