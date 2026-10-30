@@ -6,12 +6,19 @@ two box obstacles. A 360-beam 2D LiDAR is ray-cast analytically.
 
 Topics: /scan (10 Hz), /odom and /tf odom->base_link (50 Hz), /tf_static base_link->laser.
 
+Also writes the ground truth next to the bag, in the SLAM map frame (= odom frame at
+start), which analyze_run.py picks up automatically:
+  <name>.groundtruth.tum     true base_link trajectory, 10 Hz (TUM format)
+  <name>.reference.yaml/.pgm floor plan as an occupancy grid (walls occupied, room free,
+                             box interiors and outside unknown)
+
 Usage: make_synthetic_bag.py [--out data/bags/synthetic.bag]
 Convert to ROS2 with experiments/convert_bag.sh. Needs `rosbags` and `numpy`.
 """
 
 import argparse
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -81,6 +88,54 @@ def raycast(x, y, yaw):
         ranges = np.where(hit & (t < ranges), t, ranges)
     ranges[~np.isfinite(ranges) | (ranges > RANGE_MAX)] = np.inf
     return ranges.astype(np.float32)
+
+
+def write_groundtruth(path, duration, x0, y0, yaw0, rate_hz=10.0):
+    with open(path, "w") as f:
+        n = int(duration * rate_hz)
+        for i in range(n):
+            t = i / rate_hz
+            x, y, yaw, _, _ = pose_at(t)
+            # map frame == odom frame at start == robot start pose
+            c, s = math.cos(-yaw0), math.sin(-yaw0)
+            mx, my = c * (x - x0) - s * (y - y0), s * (x - x0) + c * (y - y0)
+            myaw = yaw - yaw0
+            stamp = (T0_NS + int(t * 1e9)) / 1e9
+            f.write(f"{stamp:.6f} {mx:.6f} {my:.6f} 0.0 0.0 0.0 {math.sin(myaw / 2):.9f} {math.cos(myaw / 2):.9f}\n")
+
+
+def write_reference_map(stem, x0, y0, res=0.05, margin=1.0):
+    """Floor plan in the map frame (walls shifted by the start pose; start yaw is 0)."""
+    xs = [p[0] for w in WALLS for p in w]
+    ys = [p[1] for w in WALLS for p in w]
+    ox, oy = min(xs) - margin - x0, min(ys) - margin - y0
+    W = int(math.ceil((max(xs) - min(xs) + 2 * margin) / res))
+    H = int(math.ceil((max(ys) - min(ys) + 2 * margin) / res))
+    img = np.full((H, W), 205, dtype=np.uint8)
+
+    rr, cc = np.mgrid[0:H, 0:W]
+    wx = ox + (cc + 0.5) * res + x0
+    wy = oy + (H - 1 - rr + 0.5) * res + y0
+    room = (wx > -6.0) & (wx < 6.0) & (wy > -4.0) & (wy < 4.0)
+    boxes = ((wx > -1.0) & (wx < 0.5) & (wy > 0.5) & (wy < 1.5)) | \
+            ((wx > 2.5) & (wx < 3.5) & (wy > -3.0) & (wy < -2.0))
+    img[room & ~boxes] = 254
+
+    for (ax, ay), (bx, by) in WALLS:
+        n = int(math.hypot(bx - ax, by - ay) / res * 4) + 1
+        for t in np.linspace(0.0, 1.0, n):
+            px, py = ax + t * (bx - ax) - x0, ay + t * (by - ay) - y0
+            c = int((px - ox) / res)
+            r = H - 1 - int((py - oy) / res)
+            if 0 <= r < H and 0 <= c < W:
+                img[r, c] = 0
+
+    with open(f"{stem}.reference.pgm", "wb") as f:
+        f.write(f"P5\n{W} {H}\n255\n".encode())
+        f.write(img.tobytes())
+    with open(f"{stem}.reference.yaml", "w") as f:
+        f.write(f"image: {os.path.basename(stem)}.reference.pgm\nresolution: {res}\n"
+                f"origin: [{ox:.6f}, {oy:.6f}, 0.0]\nnegate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n")
 
 
 def main():
@@ -195,6 +250,9 @@ def main():
                 )
                 w.write(c_scan, ns, ts.serialize_ros1(scan, LaserScan.__msgtype__))
 
+    stem = str(args.out)[:-4] if str(args.out).endswith(".bag") else str(args.out)
+    write_groundtruth(f"{stem}.groundtruth.tum", args.duration, x0, y0, yaw0)
+    write_reference_map(stem, x0, y0)
     print(args.out)
 
 

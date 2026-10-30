@@ -39,7 +39,36 @@ METRICS = [
     ("mem_peak_mb", "Memory peak", "MB"),
     ("mem_growth_mb", "Memory growth", "MB"),
 ]
-COMPAT_KEYS = ("algo", "mode", "bag_id", "rate")
+# Headline metrics from run_metrics.json (metrics/analyze_run.py). A row appears in the
+# report only when every selected run has the value. Definitions: docs/metrics.md.
+EXTRA_METRICS = [
+    ("slam_cpu_mean", "SLAM process CPU mean", "% core"),
+    ("slam_cpu_p95", "SLAM process CPU p95", "% core"),
+    ("slam_rss_mean_mb", "SLAM process RSS mean", "MB"),
+    ("slam_rss_peak_mb", "SLAM process RSS peak", "MB"),
+    ("middleware_cpu_mean", "Middleware CPU mean", "% core"),
+    ("middleware_rss_mean_mb", "Middleware RSS mean", "MB"),
+    ("launch_cpu_mean", "Launch process CPU mean", "% core"),
+    ("bag_player_cpu_mean", "Bag player CPU mean", "% core"),
+    ("net_total_mb", "Network traffic", "MB"),
+    ("net_rate_kBps", "Network rate", "kB/s"),
+    ("scan_drop_rate", "Scan drop rate", ""),
+    ("scan_to_map_latency_ms", "Scan→map latency (median)", "ms"),
+    ("scan_to_map_latency_p95_ms", "Scan→map latency (p95)", "ms"),
+    ("tf_update_latency_ms", "Scan→TF correction latency (median)", "ms"),
+    ("tf_update_latency_p95_ms", "Scan→TF correction latency (p95)", "ms"),
+    ("map_period_s", "Map update period", "s"),
+    ("map_period_jitter_ms", "Map update jitter", "ms"),
+    ("time_to_first_map_s", "Time to first map", "s"),
+    ("ate_rmse_m", "ATE RMSE", "m"),
+    ("rpe_trans_rmse_m", "RPE translation RMSE", "m"),
+    ("rpe_rot_rmse_deg", "RPE rotation RMSE", "deg"),
+    ("map_cell_accuracy", "Map cell accuracy vs reference", ""),
+    ("map_wall_f1", "Map wall F1 (±1 cell) vs reference", ""),
+    ("map_wall_error_m", "Map wall error vs reference", "m"),
+    ("map_completeness_m", "Map completeness error vs reference", "m"),
+]
+COMPAT_KEYS = ("algo", "mode", "bag_id", "rate", "role")
 
 
 def load_elapsed(path):
@@ -102,6 +131,8 @@ def select(runs, args):
             continue
         if args.tag and r.get("run_tag") != args.tag:
             continue
+        if r.get("role") == "player":
+            continue
         if not args.include_failed and r.get("exit_status") not in (0, None):
             continue
         if not os.path.exists(r["_csv"]):
@@ -148,9 +179,12 @@ def param_check(groups):
     }
 
 
-def fmt(v, digits=2):
+def fmt(v, digits=None):
     if v is None or v != v:
         return "n/a"
+    if digits is None:
+        a = abs(v)
+        digits = 2 if a >= 10 or a == 0 else 3 if a >= 1 else 4
     return f"{v:.{digits}f}"
 
 
@@ -160,9 +194,15 @@ def fmt_p(p):
     return "<0.001" if p < 0.001 else f"{p:.3f}"
 
 
+def available_metrics(groups):
+    runs = groups["ros1"] + groups["ros2"]
+    extra = [m for m in EXTRA_METRICS if all(r["metrics"].get(m[0]) is not None for r in runs)]
+    return METRICS + extra
+
+
 def build_report(groups, condition, trim_start, params):
     rows = []
-    for key, label, unit in METRICS:
+    for key, label, unit in available_metrics(groups):
         a = [r["metrics"][key] for r in groups["ros1"]]
         b = [r["metrics"][key] for r in groups["ros2"]]
         ma, sda, ha = mean_ci95(a)
@@ -203,13 +243,15 @@ def to_markdown(report):
     ]
     for r in report["metrics"]:
         u = r["unit"]
+        scale = max(abs(x) for x in (r["ros1"]["mean"], r["ros2"]["mean"], 0.0) if x == x)
+        d = 2 if scale >= 10 or scale == 0 else 3 if scale >= 1 else 4
         lines.append(
-            f"| {r['label']} ({u}) "
-            f"| {fmt(r['ros1']['mean'])} ± {fmt(r['ros1']['ci95'])} "
-            f"| {fmt(r['ros2']['mean'])} ± {fmt(r['ros2']['ci95'])} "
-            f"| {fmt(r['diff_ros2_minus_ros1'])} ({fmt(r['diff_pct'], 1)}%) "
+            f"| {r['label']}{f' ({u})' if u else ''} "
+            f"| {fmt(r['ros1']['mean'], d)} ± {fmt(r['ros1']['ci95'], d)} "
+            f"| {fmt(r['ros2']['mean'], d)} ± {fmt(r['ros2']['ci95'], d)} "
+            f"| {fmt(r['diff_ros2_minus_ros1'], d)} ({fmt(r['diff_pct'], 1)}%) "
             f"| {fmt_p(r['p_value'])} "
-            f"| {fmt(r['cliffs_delta_ros2_vs_ros1'])} ({r['effect']}) |"
+            f"| {fmt(r['cliffs_delta_ros2_vs_ros1'], 2)} ({r['effect']}) |"
         )
     lines += [
         "",
@@ -243,7 +285,7 @@ def to_markdown(report):
 
 def write_runs_csv(path, groups):
     fields = ["stack", "run_dir", "experiment_id", "algo", "mode", "bag_id", "rate", "run_tag",
-              "samples"] + [k for k, _, _ in METRICS]
+              "samples"] + [k for k, _, _ in METRICS] + [k for k, _, _ in EXTRA_METRICS]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
@@ -255,7 +297,8 @@ def write_runs_csv(path, groups):
                     "rate": r.get("rate"), "run_tag": r.get("run_tag"),
                     "samples": r["metrics"]["samples"],
                 }
-                row.update({k: round(r["metrics"][k], 4) for k, _, _ in METRICS})
+                row.update({k: (round(r["metrics"][k], 6) if r["metrics"].get(k) is not None else None)
+                            for k, _, _ in METRICS + EXTRA_METRICS})
                 w.writerow(row)
 
 
@@ -295,6 +338,13 @@ def main():
         if m is None:
             print(f"Skipping {r['_dir']}: no samples", file=sys.stderr)
             continue
+        summary_path = os.path.join(r["_dir"], "run_metrics.json")
+        if os.path.exists(summary_path):
+            try:
+                with open(summary_path) as f:
+                    m.update(json.load(f).get("summary", {}))
+            except (OSError, ValueError) as e:
+                print(f"{r['_dir']}: unreadable run_metrics.json ({e})", file=sys.stderr)
         r["metrics"] = m
         groups[r["stack"]].append(r)
 

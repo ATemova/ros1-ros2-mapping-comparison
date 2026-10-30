@@ -47,10 +47,25 @@ since trajectory and environment cannot be repeated exactly.
 
 ## Analysis
 
-- Per run: CPU mean and p95, memory mean, peak and growth.
+- Per run (`run_metrics.json`, definitions in `docs/metrics.md`): system and per-process
+  CPU/RSS, network traffic, scan→map and scan→TF latency, map period and jitter, time to
+  first map, scan drops, ATE/RPE and map accuracy against the bag's reference.
 - Across runs: mean ± 95% CI per stack, ROS2−ROS1 difference, two-sided Mann-Whitney U,
-  Cliff's delta (`metrics/compare_groups.py`).
-- Mapping quality is evaluated qualitatively for now (occupancy grid images).
+  Cliff's delta (`metrics/compare_groups.py`), and pairwise map consistency
+  (`metrics/map_quality.py consistency`).
+
+## References for accuracy
+
+- Record ground truth alongside the bag when possible (motion capture, total station) and
+  save it as `data/bags/<bag>.groundtruth.tum`.
+- Draw or rasterize the floor plan of the corridor as `data/bags/<bag>.reference.yaml/.pgm`.
+- Without either, report cross-run consistency and, if useful, agreement with an offline
+  reference run (clearly labelled as such).
+
+## Network experiments
+
+Same protocol with `ROLE=slam` / `ROLE=player` on two machines on the same switch
+(docs/metrics.md). Report local and distributed results as separate conditions.
 
 ## Map saving
 
@@ -77,4 +92,4 @@ A run fails (non-zero exit, `exit_status` in `run_meta.json`) when:
 
 ## Known gaps (next iterations)
 
-- CPU/memory is system-wide, and includes the bag player. Per-process metrics are planned.
+- Latency is observed from a separate subscriber process (includes transport to it).

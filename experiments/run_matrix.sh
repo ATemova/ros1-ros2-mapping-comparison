@@ -112,6 +112,10 @@ mkdir -p "${REPORT_DIR}"
 echo
 docker_run "${IMG_ROS2}" python3 metrics/compare_groups.py --tag "${RUN_TAG}" \
     --markdown "${REPORT_DIR}/report.md" --json "${REPORT_DIR}/report.json" --csv "${REPORT_DIR}/runs.csv"
+echo
+docker_run "${IMG_ROS2}" python3 metrics/map_quality.py consistency --tag "${RUN_TAG}" \
+    --markdown "${REPORT_DIR}/map_consistency.md" --json "${REPORT_DIR}/map_consistency.json" \
+  && { echo; cat "${REPORT_DIR}/map_consistency.md"; } >> "${REPORT_DIR}/report.md"
 
 echo
 echo "Report: ${REPORT_DIR}/report.md"

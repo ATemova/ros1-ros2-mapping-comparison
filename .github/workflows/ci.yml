@@ -39,7 +39,9 @@ jobs:
           assert not nested, f"slam_toolbox.yaml must be flat, nested keys: {nested}"
           PY
       - name: unit tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          python -m pip install --quiet numpy
+          python -m unittest discover -s tests -v
       - name: parameter files and mapping table
         run: python experiments/check_params.py --check-doc
 
@@ -108,7 +110,7 @@ jobs:
           name: synthetic-bag
           path: data/bags/
       - name: install dependencies
-        run: apt-get install -y python3-psutil python3-matplotlib ros-noetic-slam-toolbox ros-noetic-slam-gmapping ros-noetic-map-server
+        run: apt-get install -y python3-psutil python3-numpy python3-yaml python3-matplotlib ros-noetic-slam-toolbox ros-noetic-slam-gmapping ros-noetic-map-server
       - name: live run (no sensor, short)
         run: |
           chmod +x experiments/*.sh
@@ -133,6 +135,18 @@ jobs:
           assert all(m["map_saved"] and m["exit_status"] == 0 for m in replays), replays
           assert any(m["algo"] == "slam_toolbox" and m["pose_graph_saved"] for m in replays), replays
           print("ok", [(m["algo"], m["experiment_id"]) for m in replays])
+          # synthetic bag: ground truth is known, so the new metrics must exist and be sane
+          for m in replays:
+              r = json.load(open(f"results/raw/{m['stack']}/{m['experiment_id']}/run_metrics.json"))
+              s = r["summary"]
+              print(m["algo"], json.dumps(s, indent=1, sort_keys=True))
+              assert not r.get("errors"), r.get("errors")
+              for k in ("slam_cpu_mean", "slam_rss_peak_mb", "scan_to_map_latency_ms", "map_period_s",
+                        "time_to_first_map_s", "ate_rmse_m", "rpe_trans_rmse_m", "map_wall_f1", "map_cell_accuracy"):
+                  assert k in s, (m["algo"], k)
+              assert s["scan_drop_rate"] < 0.05, s["scan_drop_rate"]
+              assert s["ate_rmse_m"] < 0.5, s["ate_rmse_m"]
+              assert s["map_wall_f1"] > 0.5, s["map_wall_f1"]
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -153,7 +167,7 @@ jobs:
           name: synthetic-bag
           path: data/bags/
       - name: install dependencies
-        run: apt-get install -y python3-psutil python3-matplotlib ros-humble-slam-toolbox ros-humble-nav2-map-server
+        run: apt-get install -y python3-psutil python3-numpy python3-yaml python3-matplotlib ros-humble-slam-toolbox ros-humble-nav2-map-server
       - name: live run (no sensor, short)
         run: |
           chmod +x experiments/*.sh
@@ -176,6 +190,19 @@ jobs:
           r = replays[0]
           assert r["map_saved"] and r["pose_graph_saved"] and r["exit_status"] == 0, r
           print("ok", r["experiment_id"])
+          replays = [r]
+          # synthetic bag: ground truth is known, so the new metrics must exist and be sane
+          for m in replays:
+              r = json.load(open(f"results/raw/{m['stack']}/{m['experiment_id']}/run_metrics.json"))
+              s = r["summary"]
+              print(m["algo"], json.dumps(s, indent=1, sort_keys=True))
+              assert not r.get("errors"), r.get("errors")
+              for k in ("slam_cpu_mean", "slam_rss_peak_mb", "scan_to_map_latency_ms", "map_period_s",
+                        "time_to_first_map_s", "ate_rmse_m", "rpe_trans_rmse_m", "map_wall_f1", "map_cell_accuracy"):
+                  assert k in s, (m["algo"], k)
+              assert s["scan_drop_rate"] < 0.05, s["scan_drop_rate"]
+              assert s["ate_rmse_m"] < 0.5, s["ate_rmse_m"]
+              assert s["map_wall_f1"] > 0.5, s["map_wall_f1"]
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -201,12 +228,17 @@ jobs:
           python-version: "3.11"
       - name: compare_groups
         run: |
+          python -m pip install --quiet numpy pyyaml
           python metrics/compare_groups.py --tag ci --markdown report.md --require-identical-params
-          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          python metrics/map_quality.py consistency --tag ci --markdown consistency.md
+          cat report.md consistency.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: replay-maps
-          path: results/raw/*/*/map.*
+          path: |
+            results/raw/*/*/map.*
+            results/raw/*/*/trajectory.tum
+            results/raw/*/*/run_metrics.json
 
   docker-build:
     name: Build Docker images

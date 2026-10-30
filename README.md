@@ -31,9 +31,12 @@ This project provides a system-level comparison of ROS1 and ROS2 mapping pipelin
 
 The comparison focuses on:
 
-- System-level performance (CPU and memory utilization)
+- Resource use: system-wide and per process (SLAM node, middleware, launch, bag player), network traffic
+- Timing: scan→map and scan→pose-correction latency, map update rate and jitter, time to first map, scan drops
+- Mapping quality: trajectory error (ATE/RPE) and map accuracy against a reference, map consistency across runs
 - Runtime stability during mapping execution
-- Qualitative consistency of generated maps
+
+Every metric is defined in [docs/metrics.md](docs/metrics.md).
 
 Sensor data is recorded once on a real mobile robot in a controlled indoor environment, then replayed to both stacks. Both stacks run the same SLAM algorithm (`slam_toolbox`, synchronous mode) with one shared parameter file, so differences can be attributed to the middleware rather than to the algorithm, the parameters or the trajectory. Every condition is repeated and compared statistically. See [experiments/notes.md](experiments/notes.md) for the full protocol.
 
@@ -42,15 +45,15 @@ Sensor data is recorded once on a real mobile robot in a controlled indoor envir
 | Path | Purpose |
 |---|---|
 | `config/` | Shared SLAM parameters (`slam_toolbox.yaml`, loaded unchanged by both stacks), ROS1-only `gmapping.yaml`, ROS2 replay QoS overrides. |
-| `docs/` | [Parameter mapping](docs/parameter_mapping.md) between GMapping, slam_toolbox ROS1 and slam_toolbox ROS2 (generated, checked in CI). |
+| `docs/` | [Metric definitions](docs/metrics.md) and [parameter mapping](docs/parameter_mapping.md) (generated, checked in CI). |
 | `experiments/` | Run scripts (`run_ros1.sh`, `run_ros2.sh`, shared `common.sh`), batch runner `run_matrix.sh`, bag tools (`record_bag.sh`, `convert_bag.sh`, `inspect_bag.py`, `make_synthetic_bag.py`), protocol notes. |
 | `ros1/` | ROS1 Noetic launch file (`slam_toolbox` or GMapping). |
 | `ros2/` | ROS2 Humble launch file (`slam_toolbox`). |
 | `data/bags/` | Recorded bags for replay (git-ignored). |
-| `metrics/` | CPU/memory logger, single-run summary, two-run comparison, repeated-run statistics (latency logger is a placeholder). |
-| `tests/` | Unit tests for the statistics helpers. |
+| `metrics/` | Loggers (resources, ROS timing events), per-run analysis (latency, trajectory ATE/RPE, map quality), repeated-run statistics. |
+| `tests/` | Unit tests (statistics, map quality, trajectory, latency, run analysis). |
 | `plots/` | Scripts that render CPU, memory and occupancy-grid map plots as PNGs. |
-| `results/raw/` | Per-run output (`cpu_mem.csv`, `run_meta.json`, saved map, effective parameters), one folder per run ID. |
+| `results/raw/` | Per-run output (raw logs, `run_meta.json`, `run_metrics.json`, saved map, trajectory, effective parameters), one folder per run ID. |
 | `results/reports/` | Batch reports written by `run_matrix.sh`. |
 | `docker/` | Dockerfiles for ROS1 Noetic and ROS2 Humble environments. |
 | `.github/workflows/` | CI: linting, analysis smoke test, ROS1/ROS2 container runs, Docker builds. |
@@ -130,12 +133,18 @@ Without `BAG`, the scripts run live against `/scan` for `DURATION` seconds (defa
 - Starts SLAM (`ALGO=slam_toolbox` by default; `ALGO=gmapping` is available on ROS1 as a baseline) and waits until the node is up
 - Dumps the parameters the node actually holds and fails if any differs from the config (`effective_params.json`)
 - Replays the bag with `--clock` and `use_sim_time` (ROS2 uses `config/qos_overrides.yaml`), or runs for `DURATION` live
-- Logs system-wide CPU and memory to `cpu_mem.csv` and fails if the logger produced no samples
+- Logs system-wide and per-process CPU/memory and network traffic (`cpu_mem.csv`, `proc_metrics.csv`, `net_io.csv`); fails if the logger produced no samples
+- Records scan, map and TF timing events (`latency_events.csv`; `LOG_LATENCY=0` to disable)
 - Saves the map before shutdown: `map.pgm` + `map.yaml` (ROS1 `map_saver`, ROS2 `/slam_toolbox/save_map`), the slam_toolbox pose graph (`/slam_toolbox/serialize_map` → `pose_graph.posegraph` + `.data`), and a rendered `map.png`
 - Archives the parameter file and writes `run_meta.json` (stack, algorithm, mode, bag, rate, tag, map/params/metrics status, git commit, host)
+- Analyzes the run into `run_metrics.json`: latency, rates, drops, per-process resources, `trajectory.tum`, and ATE/RPE and map accuracy when the bag has a reference (`data/bags/<bag>.groundtruth.tum`, `data/bags/<bag>.reference.yaml`, or `REFERENCE_TRAJ` / `REFERENCE_MAP`)
 - Stops every launched process group on exit
 
 In replay mode a run fails unless a map was produced and saved (`REQUIRE_MAP=0` to relax); in both modes it fails on a parameter mismatch (`REQUIRE_PARAMS=0` to relax).
+
+### Two machines
+
+To measure transport overhead on a real network, run SLAM and the bag player on different machines with `ROLE=slam` and `ROLE=player`; see [docs/metrics.md](docs/metrics.md#two-machines-network--ipc-overhead).
 
 Check the parameter files and the [mapping table](docs/parameter_mapping.md):
 
@@ -153,7 +162,20 @@ Summarize a run (standard library only — runs in any ROS image):
 python3 metrics/summarize_metrics.py results/raw/ros1/<run_id>/cpu_mem.csv
 ```
 
-Statistics across repeated runs (mean ± 95% CI, Mann-Whitney U, Cliff's delta):
+Analyze one run again (e.g. with another reference):
+
+```
+python3 metrics/analyze_run.py results/raw/ros2/<run_id> --reference-map data/bags/floorplan.yaml
+```
+
+Map accuracy and cross-run map consistency:
+
+```
+python3 metrics/map_quality.py compare results/raw/ros1/<run_id>/map.yaml data/bags/floorplan.yaml
+python3 metrics/map_quality.py consistency --tag <run_tag>
+```
+
+Statistics across repeated runs (mean ± 95% CI, Mann-Whitney U, Cliff's delta). Includes every headline metric from `run_metrics.json` that all selected runs have:
 
 ```
 python3 metrics/compare_groups.py --tag <run_tag>
@@ -188,9 +210,9 @@ This study focuses on system-level behavior and qualitative mapping outcomes. It
 
 Known limitations of the current pipeline:
 
-- The CPU/memory logger records system-wide usage (including the bag player), not per-process usage of the SLAM node.
 - GMapping is ROS1-only; the comparison across stacks uses `slam_toolbox`.
-- Message latency logging (`metrics/ros_latency_logger.py`) is a placeholder.
+- Latencies are measured at an observer process, so they include transport to it (identical for both stacks).
+- ATE and map accuracy need a reference (ground truth, external tracking, floor plan); without one, only cross-run consistency is available.
 - No experimental results are committed yet.
 
 ## Status

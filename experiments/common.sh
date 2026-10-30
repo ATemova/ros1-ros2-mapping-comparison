@@ -15,6 +15,19 @@
 #                 config file, or its parameters cannot be read (default 1)
 #   RUN_TAG       free-form label stored in run_meta.json (used to group repeated runs)
 #   ROS_DISTRO    override the ROS distribution to source
+#   LOG_LATENCY   1 = run metrics/ros_latency_logger.py (default 1). It subscribes to
+#                 /scan, /map and /tf like any other client; set 0 for CPU-only runs.
+#   REFERENCE_TRAJ / REFERENCE_MAP   reference trajectory (TUM) / map (.yaml) for ATE and
+#                 map accuracy (default: data/bags/<bag>.groundtruth.tum / .reference.yaml)
+#
+# Two machines (network/IPC overhead): run the bag on one machine and SLAM on the other.
+#   ROLE=all      (default) everything on this machine
+#   ROLE=slam     SLAM, loggers and map saving here; waits for /clock from the player,
+#                 stops CLOCK_IDLE seconds after it goes silent. BAG is optional (used for
+#                 the bag id and the expected scan count).
+#   ROLE=player   only plays BAG (ROS1: against the remote ROS_MASTER_URI) and logs this
+#                 machine's CPU and network. Start it after the slam side reports ready.
+#   CLOCK_WAIT    seconds the slam side waits for the player to start (default 600)
 
 # shellcheck disable=SC2034
 set -uo pipefail
@@ -34,7 +47,17 @@ STARTUP_WAIT="${STARTUP_WAIT:-15}"
 RUN_TAG="${RUN_TAG:-}"
 QOS_OVERRIDES="${REPO_ROOT}/config/qos_overrides.yaml"
 
-if [ -n "${BAG}" ]; then MODE="replay"; else MODE="live"; fi
+ROLE="${ROLE:-all}"
+LOG_LATENCY="${LOG_LATENCY:-1}"
+CLOCK_WAIT="${CLOCK_WAIT:-600}"
+CLOCK_IDLE="${CLOCK_IDLE:-5}"
+case "${ROLE}" in
+  all|slam|player) ;;
+  *) echo "ERROR: ROLE must be all, slam or player (got '${ROLE}')" >&2; exit 1 ;;
+esac
+[ "${ROLE}" = "player" ] && [ -z "${BAG}" ] && { echo "ERROR: ROLE=player needs BAG" >&2; exit 1; }
+
+if [ -n "${BAG}" ] || [ "${ROLE}" = "slam" ]; then MODE="replay"; else MODE="live"; fi
 if [ "${MODE}" = "replay" ]; then USE_SIM_TIME=true; else USE_SIM_TIME=false; fi
 REQUIRE_MAP="${REQUIRE_MAP:-$([ "${MODE}" = "replay" ] && echo 1 || echo 0)}"
 REQUIRE_PARAMS="${REQUIRE_PARAMS:-1}"
@@ -249,17 +272,34 @@ csv_rows() {
   echo $(( $(wc -l < "$1") - 1 ))
 }
 
-# ---------------------------------------------------------------- main
-run_experiment() {
-  local base_id i=1 bag_rc="" map_received=false map_saved=false pose_graph_saved=false
-  local params_ok=false metrics_samples=0 started_at finished_at status=0
+clock_alive() {
+  if [ "${STACK}" = "ros1" ]; then
+    timeout 3 rostopic echo -n 1 /clock >/dev/null 2>&1
+  else
+    timeout "${CLOCK_IDLE}" ros2 topic echo --once /clock rosgraph_msgs/msg/Clock >/dev/null 2>&1
+  fi
+}
 
-  source_ros
-  ensure_psutil || die "psutil is required for CPU/memory logging (apt-get install python3-psutil)."
+# ROLE=slam: block until the remote player has started and finished publishing /clock.
+wait_for_remote_bag() {
+  local deadline=$(( SECONDS + CLOCK_WAIT ))
+  log "Ready. Waiting up to ${CLOCK_WAIT}s for the player to start (/clock)..."
+  until clock_alive; do
+    [ "${SECONDS}" -lt "${deadline}" ] || return 1
+    sleep 1
+  done
+  log "Player started; waiting for /clock to stop."
+  while clock_alive; do sleep 1; done
+  return 0
+}
 
-  BAG_ID=""; BAG_PATH=""
-  [ "${MODE}" = "replay" ] && resolve_bag "${BAG}"
+config_value() {
+  python3 -c "import sys, yaml; print((yaml.safe_load(open(sys.argv[1])) or {}).get(sys.argv[2], sys.argv[3]))" \
+    "config/${ALGO}.yaml" "$1" "$2" 2>/dev/null || echo "$2"
+}
 
+new_output_dir() {
+  local base_id i=1
   base_id="$(date +"%Y%m%d_%H%M%S")"
   EXPERIMENT_ID="${base_id}"
   while [ -e "results/raw/${STACK}/${EXPERIMENT_ID}" ]; do
@@ -267,13 +307,88 @@ run_experiment() {
   done
   OUTPUT_DIR="results/raw/${STACK}/${EXPERIMENT_ID}"
   mkdir -p "${OUTPUT_DIR}"
+}
+
+start_resource_logger() {
+  start_group python3 metrics/cpu_memory_logger.py \
+    --output "${OUTPUT_DIR}/cpu_mem.csv" \
+    --proc-output "${OUTPUT_DIR}/proc_metrics.csv" \
+    --net-output "${OUTPUT_DIR}/net_io.csv" \
+    --experiment_id "${EXPERIMENT_ID}" \
+    --ros_version "${ROS_LABEL}"
+  METRICS_PID="${LAST_GROUP}"
+}
+
+start_bag_player() {
+  if [ "${STACK}" = "ros1" ]; then
+    start_group rosbag play --clock --quiet -r "${RATE}" "${BAG_PATH}"
+  else
+    start_group ros2 bag play --clock -r "${RATE}" \
+      --qos-profile-overrides-path "${QOS_OVERRIDES}" "${BAG_PATH}"
+  fi
+}
+
+# ---------------------------------------------------------------- ROLE=player
+run_player() {
+  local bag_rc status=0 started_at finished_at samples
+
+  source_ros
+  ensure_psutil || die "psutil is required (apt-get install python3-psutil)."
+  resolve_bag "${BAG}"
+  if [ "${STACK}" = "ros1" ]; then
+    wait_for_master || die "no ROS master at ${ROS_MASTER_URI:-unset}. Start ROLE=slam first and set ROS_MASTER_URI / ROS_IP."
+  fi
+
+  new_output_dir
+  log "Player run ${EXPERIMENT_ID}: ${BAG_PATH} at ${RATE}x -> ${OUTPUT_DIR}"
+  started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  start_resource_logger
+  sleep 1
+  start_bag_player
+  wait "${LAST_GROUP}"; bag_rc=$?
+  stop_group "${METRICS_PID}"
+  finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  samples="$(csv_rows "${OUTPUT_DIR}/cpu_mem.csv")"
+  [ "${bag_rc}" = "0" ] || { log "ERROR: bag playback failed (exit ${bag_rc})."; status=1; }
+
+  python3 experiments/write_meta.py "${OUTPUT_DIR}/run_meta.json" \
+    experiment_id="${EXPERIMENT_ID}" stack="${STACK}" ros_distro="${ROS_DISTRO}" role=player \
+    mode=replay bag_id="${BAG_ID}" bag_path="${BAG_PATH}" rate="${RATE}" run_tag="${RUN_TAG}" \
+    bag_exit_code="${bag_rc}" metrics_samples="${samples}" exit_status="${status}" \
+    started_at="${started_at}" finished_at="${finished_at}" \
+    ros_master_uri="${ROS_MASTER_URI:-}" ros_domain_id="${ROS_DOMAIN_ID:-}" \
+    rmw_implementation="${RMW_IMPLEMENTATION:-}" \
+    || log "WARNING: could not write run_meta.json"
+  python3 metrics/analyze_run.py "${OUTPUT_DIR}" --quiet || log "WARNING: analysis failed."
+  log "Player completed (status ${status})."
+  return "${status}"
+}
+
+# ---------------------------------------------------------------- main
+run_experiment() {
+  [ "${ROLE}" = "player" ] && { run_player; return $?; }
+
+  local bag_rc="" map_received=false map_saved=false pose_graph_saved=false
+  local params_ok=false metrics_samples=0 started_at finished_at status=0
+  local scans_expected="" latency_pid="" latency_events=0
+
+  source_ros
+  ensure_psutil || die "psutil is required for CPU/memory logging (apt-get install python3-psutil)."
+
+  BAG_ID=""; BAG_PATH=""
+  [ -n "${BAG}" ] && resolve_bag "${BAG}"
+  [ -n "${BAG_PATH}" ] && scans_expected="$(python3 experiments/bag_info.py "${BAG_PATH}" --topic "$(config_value scan_topic /scan)" 2>/dev/null)"
+
+  new_output_dir
   cp "config/${ALGO}.yaml" "${OUTPUT_DIR}/"
   [ "${MODE}" = "replay" ] && [ "${STACK}" = "ros2" ] && cp "${QOS_OVERRIDES}" "${OUTPUT_DIR}/"
 
   log "Experiment ID: ${EXPERIMENT_ID}"
   log "Output:        ${OUTPUT_DIR}"
   log "Algorithm:     ${ALGO}"
-  if [ "${MODE}" = "replay" ]; then
+  if [ "${ROLE}" = "slam" ]; then
+    log "Mode:          replay from a remote player${BAG_PATH:+ (${BAG_PATH})}"
+  elif [ "${MODE}" = "replay" ]; then
     log "Mode:          replay ${BAG_PATH} at ${RATE}x"
   else
     log "Mode:          live, ${DURATION}s"
@@ -300,19 +415,27 @@ run_experiment() {
     log "WARNING: node parameters do not match config/${ALGO}.yaml (see effective_params.json)."
   fi
 
-  start_group python3 metrics/cpu_memory_logger.py \
-    --output "${OUTPUT_DIR}/cpu_mem.csv" \
-    --experiment_id "${EXPERIMENT_ID}" \
-    --ros_version "${ROS_LABEL}"
-  METRICS_PID="${LAST_GROUP}"
+  start_resource_logger
 
-  if [ "${MODE}" = "replay" ]; then
-    if [ "${STACK}" = "ros1" ]; then
-      start_group rosbag play --clock --quiet -r "${RATE}" "${BAG_PATH}"
-    else
-      start_group ros2 bag play --clock -r "${RATE}" \
-        --qos-profile-overrides-path "${QOS_OVERRIDES}" "${BAG_PATH}"
-    fi
+  if [ "${LOG_LATENCY}" = "1" ]; then
+    local sim_flag=()
+    [ "${USE_SIM_TIME}" = "true" ] && sim_flag=(--use-sim-time)
+    start_group python3 metrics/ros_latency_logger.py --ros "${STACK#ros}" \
+      --output "${OUTPUT_DIR}/latency_events.csv" ${sim_flag[@]+"${sim_flag[@]}"} \
+      --scan-topic "$(config_value scan_topic /scan)" \
+      --map-frame "$(config_value map_frame map)" \
+      --odom-frame "$(config_value odom_frame odom)" \
+      --base-frame "$(config_value base_frame base_link)"
+    latency_pid="${LAST_GROUP}"
+    sleep 3
+    group_alive "${latency_pid}" || log "WARNING: the latency logger exited at startup."
+  fi
+
+  if [ "${ROLE}" = "slam" ]; then
+    if wait_for_remote_bag; then bag_rc=0; else bag_rc=124; log "ERROR: no /clock from a player within ${CLOCK_WAIT}s."; fi
+    sleep "${SETTLE}"
+  elif [ "${MODE}" = "replay" ]; then
+    start_bag_player
     wait "${LAST_GROUP}"; bag_rc=$?
     log "Bag playback finished (exit ${bag_rc}); settling ${SETTLE}s."
     sleep "${SETTLE}"
@@ -324,10 +447,12 @@ run_experiment() {
     log "ERROR: the CPU/memory logger exited early."; status=1
   fi
   stop_group "${METRICS_PID}"
+  [ -n "${latency_pid}" ] && stop_group "${latency_pid}"
   metrics_samples="$(csv_rows "${OUTPUT_DIR}/cpu_mem.csv")"
   if [ "${metrics_samples}" -lt 1 ]; then
     log "ERROR: cpu_mem.csv has no samples."; status=1
   fi
+  [ -n "${latency_pid}" ] && latency_events="$(csv_rows "${OUTPUT_DIR}/latency_events.csv")"
 
   if probe_map; then
     map_received=true
@@ -360,16 +485,28 @@ run_experiment() {
   fi
 
   python3 experiments/write_meta.py "${OUTPUT_DIR}/run_meta.json" \
-    experiment_id="${EXPERIMENT_ID}" stack="${STACK}" ros_distro="${ROS_DISTRO}" \
+    experiment_id="${EXPERIMENT_ID}" stack="${STACK}" ros_distro="${ROS_DISTRO}" role="${ROLE}" \
     algo="${ALGO}" mode="${MODE}" bag_id="${BAG_ID}" bag_path="${BAG_PATH}" \
-    rate="${RATE}" duration_s="$([ "${MODE}" = "live" ] && echo "${DURATION}")" \
+    rate="$([ "${ROLE}" = "slam" ] || echo "${RATE}")" \
+    duration_s="$([ "${MODE}" = "live" ] && echo "${DURATION}")" \
     settle_s="${SETTLE}" use_sim_time="${USE_SIM_TIME}" run_tag="${RUN_TAG}" \
-    bag_exit_code="${bag_rc}" map_received="${map_received}" map_saved="${map_saved}" \
+    bag_exit_code="${bag_rc}" scans_expected="${scans_expected}" \
+    map_received="${map_received}" map_saved="${map_saved}" \
     pose_graph_saved="${pose_graph_saved}" params_ok="${params_ok}" \
-    metrics_samples="${metrics_samples}" exit_status="${status}" \
+    metrics_samples="${metrics_samples}" latency_events="${latency_events}" exit_status="${status}" \
     started_at="${started_at}" finished_at="${finished_at}" \
     params_file="${ALGO}.yaml" rmw_implementation="${RMW_IMPLEMENTATION:-}" \
+    ros_master_uri="${ROS_MASTER_URI:-}" ros_domain_id="${ROS_DOMAIN_ID:-}" \
     || log "WARNING: could not write run_meta.json"
+
+  local ref_args=()
+  [ -n "${REFERENCE_TRAJ:-}" ] && ref_args+=(--reference-traj "${REFERENCE_TRAJ}")
+  [ -n "${REFERENCE_MAP:-}" ] && ref_args+=(--reference-map "${REFERENCE_MAP}")
+  if python3 metrics/analyze_run.py "${OUTPUT_DIR}" ${ref_args[@]+"${ref_args[@]}"}; then
+    log "Analysis written to ${OUTPUT_DIR}/run_metrics.json"
+  else
+    log "WARNING: analysis failed; raw data is still in ${OUTPUT_DIR}."
+  fi
 
   log "Experiment completed (status ${status})."
   return "${status}"
