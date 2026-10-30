@@ -62,6 +62,22 @@ since trajectory and environment cannot be repeated exactly.
 - Without either, report cross-run consistency and, if useful, agreement with an offline
   reference run (clearly labelled as such).
 
+## Middleware and distribution experiments
+
+- Same bag, same parameters; only the RMW (`make rmw`) or the distribution (`make distros`)
+  changes. Report each as its own comparison (group by `rmw` / `ros_distro`).
+- ROS1 vs ROS2 is reported against ROS2's default RMW (Fast DDS) on Humble; the other RMWs
+  and Jazzy are separate rows of the variant report, not pooled into "ROS2".
+
+## Stress conditions
+
+- CPU: `CPUS` (quota) or `CPU_SET` (cores); memory: `MEMORY`. Choose limits that match a
+  target board (e.g. `CPUS=4 MEMORY=4g CONDITION=rpi4-like`) and keep them for all variants.
+- Rate: `RATE=2` and `RATE=4` replay the same bag faster (scan and TF rates scale together);
+  for a higher LiDAR rate only, use a synthetic bag with `--scan-hz`.
+- Duration: `make long` (30 min loop bag, 3 runs per stack); report `slam_rss_slope_mb_per_min`.
+- Conditions are recorded per run and never pooled; compare them with `--group-by condition`.
+
 ## Network experiments
 
 Same protocol with `ROLE=slam` / `ROLE=player` on two machines on the same switch

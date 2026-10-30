@@ -23,7 +23,7 @@ Processes are grouped by command line (`--role NAME=REGEX` to change):
 | Role | ROS1 | ROS2 |
 |---|---|---|
 | `slam` | `sync_slam_toolbox_node` / `slam_gmapping` | `sync_slam_toolbox_node` |
-| `middleware` | `rosmaster`, `rosout` | `ros2` CLI daemon when running (ROS2 has no master; DDS discovery runs inside each process) |
+| `middleware` | `rosmaster`, `rosout` | `ros2` CLI daemon when running, Zenoh router (`rmw_zenohd`) with `RMW=zenoh` (DDS has no master; discovery runs inside each process) |
 | `launch` | `roslaunch` | `ros2 launch` |
 | `bag_player` | `rosbag play` | `ros2 bag play` |
 | `latency_logger` | `ros_latency_logger.py` | same |
@@ -39,6 +39,7 @@ input, and the SLAM process contains each stack's client library (roscpp vs rclc
 |---|---|
 | `slam_cpu_mean`, `slam_cpu_p95` | SLAM process CPU, % of one core, over 1 s samples |
 | `slam_rss_mean_mb`, `slam_rss_peak_mb` | SLAM process resident memory |
+| `slam_rss_growth_mb`, `slam_rss_slope_mb_per_min` | SLAM RSS last − first sample, and least-squares trend; use long runs (`make long`) |
 | `middleware_cpu_mean`, `middleware_rss_mean_mb` | Middleware processes (see roles) |
 | `launch_cpu_mean`, `bag_player_cpu_mean` | Launch and bag player processes |
 | `net_total_mb`, `net_rate_kBps` | Bytes sent + received on all interfaces during the run |
@@ -156,3 +157,54 @@ distributed runs are never mixed, because `role` is part of the run condition.
 
 Keep clocks synchronized (NTP/chrony) if you compare wall-clock latencies across machines.
 All latencies here are measured on the SLAM machine, so they do not depend on it.
+
+## Variants: stack, distribution, middleware
+
+Every run records `stack`, `ros_distro`, `rmw` and a `variant` label
+(`ros1-noetic`, `ros2-humble-fastrtps`, `ros2-jazzy-zenoh`, ...).
+
+| Dimension | How to set it | Notes |
+|---|---|---|
+| ROS2 middleware | `RMW=fastrtps` (default) / `cyclonedds` / `zenoh` | Zenoh starts `rmw_zenohd` for the run; for two machines point the player at it with `ZENOH_CONFIG_OVERRIDE='connect/endpoints=["tcp/<slam-ip>:7447"]'` and set `ZENOH_ROUTER=external` on any side that should not start its own router |
+| ROS2 distribution | image `ros2-mapping:<distro>` (`make image-ros2 DISTRO=jazzy`) | From Jazzy on, slam_toolbox is a lifecycle node; the launch file configures and activates it |
+| Stack | `run_ros1.sh` / `run_ros2.sh` | ROS1 is always TCPROS |
+
+Noetic reached end of life in May 2025, Humble is supported until May 2027 and Jazzy until
+May 2029, which is why the study covers both ROS2 LTS releases. Newer distributions
+(e.g. Lyrical) work the same way: `DISTRO=<name>` builds the image and the lifecycle launch path applies.
+
+`compare_groups.py --group-by stack|rmw|ros_distro|variant|condition` compares any of these;
+everything else (algorithm, bag, rate, condition, ...) must match or the script refuses to pool.
+With three or more groups the report adds a Kruskal–Wallis test and Holm-adjusted pairwise p-values.
+
+## Conditions (stress)
+
+| Stressor | How | Recorded as |
+|---|---|---|
+| CPU cores | `CPU_SET=0,1` (container `--cpuset-cpus`, or `taskset` natively) | `condition: cpus2` |
+| CPU quota | `CPUS=1.5` (container `--cpus`, i.e. cgroup `cpu.max`) | `condition: quota1.5` |
+| Memory | `MEMORY=2g` (container `--memory`) | `condition: mem2048M` |
+| Scan / TF rate | `RATE=2`, `RATE=4` (faster playback), or a high-rate synthetic bag (`--scan-hz 40 --beams 1080`) | `rate`, bag id |
+| Duration | `make long` (30 min synthetic loop bag) or a long recording | bag id; read `slam_rss_slope_mb_per_min` |
+
+The condition is derived from the limits that actually apply inside the run (cgroup and
+CPU affinity), so a mis-applied limit shows up as `default`. `CONDITION=<label>` overrides it,
+e.g. `CONDITION=rpi4-like` for `CPUS=4 MEMORY=4g`. Compare conditions of one variant with
+`compare_groups.py --tag a,b --group-by condition --variant ros2-humble-fastrtps`.
+
+## Reproducibility record
+
+Each run folder has `run_manifest.json`: git commit and dirty flag, Docker image tag and id,
+sha256 of the parameter file, launch file, QoS overrides and bag, versions of the ROS
+packages that matter (slam_toolbox, rclcpp/roscpp, RMWs, rosbag2), Python libraries, host
+CPU/memory/OS and the CPU/memory limits in force, and the ROS/DDS/Zenoh environment variables.
+The report's *Provenance* section summarises them.
+
+## Reports
+
+`make report TAG=<tag> [GROUP_BY=...]` (or `metrics/make_report.py`) writes
+`results/reports/<tag>/report.md` and a copy at `results/report.md`: setup per group (image,
+distro, RMW, slam_toolbox version, condition), the statistics table, figures (per-run metric
+distributions, SLAM CPU and RSS over time, trajectories against the reference, maps),
+map consistency, provenance and links to every run. `run_matrix.sh` (and every `make`
+experiment target) generates it at the end of a batch.

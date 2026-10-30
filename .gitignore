@@ -29,6 +29,7 @@ COLCON_IGNORE
 # ROS bags (large, keep outside git; data/bags/ is the replay input folder)
 data/bags/*
 !data/bags/.gitkeep
+data/release/
 *.bag
 *.bag.active
 *.db3

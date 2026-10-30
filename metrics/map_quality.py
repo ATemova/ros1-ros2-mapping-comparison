@@ -2,7 +2,7 @@
 """Quantitative occupancy-grid comparison (numpy only).
 
     map_quality.py compare test.yaml reference.yaml [--max-angle 10] [--no-align]
-    map_quality.py consistency [--results results/raw] --tag T [--json f] [--markdown f]
+    map_quality.py consistency [--results results/raw] --tag T [--group-by variant] [--json f] [--markdown f]
 
 `compare` aligns the test map to the reference (2D rotation + translation search on
 occupied cells, FFT cross-correlation per angle) and reports, on the reference grid:
@@ -20,7 +20,8 @@ occupied cells, FFT cross-correlation per angle) and reports, on the reference g
 
 With a floor plan or ground-truth map as the reference this is map accuracy; with
 another run's map it is cross-run consistency. `consistency` compares all pairs of
-runs selected by tag: within ROS1, within ROS2 and across stacks.
+runs selected by tag (comma-separated tags allowed), within each group (default: variant,
+e.g. ros1-noetic, ros2-humble-zenoh) and across groups.
 
 Maps are map_server format (.yaml + .pgm). Classes follow map_server trinary mode:
 p = (255 - v) / 255 (or v / 255 if negate); occupied if p > occupied_thresh,
@@ -317,39 +318,46 @@ PAIR_METRICS = [
 ]
 
 
-def consistency(results_dir, tag, max_angle_deg):
+def consistency(results_dir, tag, max_angle_deg, group_by="variant"):
+    """Pairwise map comparison of all runs with a saved map, grouped by `group_by`."""
+    from compare_groups import prop
     from stats_utils import mean_ci95
 
+    tags = tag.split(",") if tag else None
     runs = []
     for meta_path in sorted(glob.glob(os.path.join(results_dir, "*", "*", "run_meta.json"))):
         d = os.path.dirname(meta_path)
         with open(meta_path) as f:
             meta = json.load(f)
-        if tag and meta.get("run_tag") != tag:
+        if tags and meta.get("run_tag") not in tags:
             continue
-        if meta.get("exit_status") not in (0, None):
+        if meta.get("exit_status") not in (0, None) or prop(meta, "role") == "player":
             continue
         if os.path.exists(os.path.join(d, "map.yaml")):
-            runs.append((meta.get("stack"), d))
+            runs.append((prop(meta, group_by), d))
 
     maps = {d: load_map(os.path.join(d, "map.yaml")) for _, d in runs}
-    pairs = {"ros1-ros1": [], "ros2-ros2": [], "ros1-ros2": []}
-    for (sa, da), (sb, db) in itertools.combinations(runs, 2):
-        key = "-".join(sorted([sa, sb]))
-        if key not in pairs:
-            continue
+    groups = sorted({g for g, _ in runs})
+    pairs = {}
+    for (ga, da), (gb, db) in itertools.combinations(runs, 2):
+        key = " | ".join(sorted([ga, gb]))
         r = compare(maps[da], maps[db], max_angle_deg)
         r.update(a=da, b=db)
-        pairs[key].append(r)
+        pairs.setdefault(key, []).append(r)
 
+    within = [f"{g} | {g}" for g in groups]
+    across = [f"{a} | {b}" for a, b in itertools.combinations(groups, 2)]
+    order = [k for k in within + across if k in pairs]
     summary = {}
-    for key, rows in pairs.items():
-        summary[key] = {"pairs": len(rows)}
+    for key in order:
+        rows = pairs[key]
+        summary[key] = {"pairs": len(rows), "within": key in within}
         for m, _, _ in PAIR_METRICS:
             vals = [r[m] for r in rows if r.get(m) is not None]
             mu, sd, ci = mean_ci95(vals)
             summary[key][m] = {"mean": mu, "sd": sd, "ci95": ci}
-    return {"tag": tag, "runs": [d for _, d in runs], "summary": summary, "pairs": pairs}
+    return {"tag": tag, "group_by": group_by, "groups": groups, "order": order,
+            "runs": [d for _, d in runs], "summary": summary, "pairs": pairs}
 
 
 def consistency_markdown(rep):
@@ -359,16 +367,19 @@ def consistency_markdown(rep):
     lines = [
         "## Map consistency across runs",
         "",
-        "Pairwise comparison of saved maps after rigid alignment. Within-stack pairs measure "
-        "repeatability; ROS1–ROS2 pairs measure whether both stacks build the same map.",
+        "Pairwise comparison of saved maps after rigid alignment. Pairs within one group measure "
+        "repeatability; pairs across groups measure whether both build the same map.",
         "",
         "| Pairs | n | " + " | ".join(f"{label}{' (' + u + ')' if u else ''}" for _, label, u in PAIR_METRICS) + " |",
         "|---|---|" + "---|" * len(PAIR_METRICS),
     ]
-    for key in ("ros1-ros1", "ros2-ros2", "ros1-ros2"):
+    for key in rep["order"]:
         s = rep["summary"][key]
+        name = key.split(" | ")[0] + " (within)" if s["within"] else key.replace(" | ", " ↔ ")
         cells = [f"{f(s[m]['mean'])} ± {f(s[m]['ci95'])}" for m, _, _ in PAIR_METRICS]
-        lines.append(f"| {key.upper().replace('-', '–')} | {s['pairs']} | " + " | ".join(cells) + " |")
+        lines.append(f"| {name} | {s['pairs']} | " + " | ".join(cells) + " |")
+    if not rep["order"]:
+        lines.append("| (no saved maps) | 0 |" + " |" * len(PAIR_METRICS))
     lines += ["", "Pairs share runs, so they are not independent samples; read the CIs as descriptive."]
     return "\n".join(lines) + "\n"
 
@@ -386,6 +397,7 @@ def main():
     k.add_argument("--results", default="results/raw")
     k.add_argument("--tag", required=True)
     k.add_argument("--max-angle", type=float, default=10.0)
+    k.add_argument("--group-by", default="variant", help="run property to group by (default variant)")
     k.add_argument("--json")
     k.add_argument("--markdown")
     args = ap.parse_args()
@@ -396,7 +408,7 @@ def main():
         json.dump(res, sys.stdout, indent=2)
         print()
     else:
-        rep = consistency(args.results, args.tag, args.max_angle)
+        rep = consistency(args.results, args.tag, args.max_angle, args.group_by)
         md = consistency_markdown(rep)
         print(md, end="")
         if args.json:

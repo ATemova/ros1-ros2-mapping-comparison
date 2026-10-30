@@ -9,7 +9,8 @@ Outputs:
 
 Roles group processes by command line (first match wins). Defaults:
   slam            sync_slam_toolbox_node, slam_gmapping
-  middleware      rosmaster, rosout (ROS1); the ros2 CLI daemon (ROS2 has no master)
+  middleware      rosmaster, rosout (ROS1); the ros2 CLI daemon and the Zenoh router
+                  (rmw_zenohd) on ROS2 (DDS has no master; discovery runs in each process)
   launch          roslaunch, ros2 launch
   bag_player      rosbag play, ros2 bag play
   latency_logger  metrics/ros_latency_logger.py
@@ -37,7 +38,7 @@ except ImportError:
 
 DEFAULT_ROLES = [
     ("slam", r"sync_slam_toolbox_node|async_slam_toolbox_node|slam_gmapping"),
-    ("middleware", r"rosmaster|lib/rosout/rosout|_ros2_daemon"),
+    ("middleware", r"rosmaster|lib/rosout/rosout|_ros2_daemon|rmw_zenohd"),
     ("launch", r"roslaunch|bin/ros2 launch"),
     ("bag_player", r"rosbag/play|bin/rosbag play|bin/ros2 bag play"),
     ("latency_logger", r"ros_latency_logger\.py"),

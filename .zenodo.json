@@ -1,0 +1,13 @@
+{
+  "title": "ROS1 vs ROS2 Mapping Comparison",
+  "description": "Experiment pipeline, metrics and analysis tools for a practical, system-level comparison of ROS1 and ROS2 mapping pipelines on a real mobile robot: identical slam_toolbox parameters on both stacks, bag replay, per-process resources, latency, ATE/RPE and map accuracy, ROS2 middleware (Fast DDS, Cyclone DDS, Zenoh) and distribution (Humble, Jazzy) comparisons.",
+  "upload_type": "software",
+  "license": "MIT",
+  "creators": [
+    {"name": "Temova, Anastasija"}
+  ],
+  "keywords": ["ROS", "ROS 2", "SLAM", "slam_toolbox", "middleware", "DDS", "Zenoh", "benchmarking"],
+  "related_identifiers": [
+    {"identifier": "https://github.com/ATemova/ros1-ros2-mapping-comparison", "relation": "isSupplementTo", "scheme": "url"}
+  ]
+}

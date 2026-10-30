@@ -28,6 +28,15 @@
 #   ROLE=player   only plays BAG (ROS1: against the remote ROS_MASTER_URI) and logs this
 #                 machine's CPU and network. Start it after the slam side reports ready.
 #   CLOCK_WAIT    seconds the slam side waits for the player to start (default 600)
+#
+# Middleware and conditions:
+#   RMW           ROS2 middleware: fastrtps (default), cyclonedds, zenoh, or a full
+#                 rmw_* name. zenoh starts its router (rmw_zenohd) automatically.
+#   CPU_SET       pin the whole run to these CPUs (taskset list, e.g. "0,1")
+#   CONDITION     label for the run condition (default: derived from applied CPU/memory
+#                 limits, "default" when unconstrained). Runs with different conditions
+#                 are never pooled.
+#   IMAGE_ID / IMAGE_TAG / GIT_DIRTY   set by the Makefile / run_matrix.sh for run_manifest.json
 
 # shellcheck disable=SC2034
 set -uo pipefail
@@ -61,6 +70,9 @@ if [ -n "${BAG}" ] || [ "${ROLE}" = "slam" ]; then MODE="replay"; else MODE="liv
 if [ "${MODE}" = "replay" ]; then USE_SIM_TIME=true; else USE_SIM_TIME=false; fi
 REQUIRE_MAP="${REQUIRE_MAP:-$([ "${MODE}" = "replay" ] && echo 1 || echo 0)}"
 REQUIRE_PARAMS="${REQUIRE_PARAMS:-1}"
+RMW="${RMW:-${RMW_IMPLEMENTATION:-}}"
+CPU_SET="${CPU_SET:-}"
+CONDITION="${CONDITION:-}"
 
 case "${STACK}" in
   ros1)
@@ -162,9 +174,59 @@ source_ros() {
     command -v roscore >/dev/null 2>&1 || die "ROS1 not found on PATH. Run inside the ros:noetic container or source /opt/ros/noetic/setup.bash."
     rospack find "${SLAM_PKG}" >/dev/null 2>&1 || die "package '${SLAM_PKG}' is not installed (apt-get install ros-noetic-${SLAM_PKG//_/-})."
   else
-    command -v ros2 >/dev/null 2>&1 || die "ROS2 not found on PATH. Run inside the ros:humble container or source /opt/ros/humble/setup.bash."
-    ros2 pkg prefix "${SLAM_PKG}" >/dev/null 2>&1 || die "package '${SLAM_PKG}' is not installed (apt-get install ros-humble-${SLAM_PKG//_/-})."
+    command -v ros2 >/dev/null 2>&1 || die "ROS2 not found on PATH. Run inside a ros2-mapping container or source /opt/ros/<distro>/setup.bash."
+    ros2 pkg prefix "${SLAM_PKG}" >/dev/null 2>&1 || die "package '${SLAM_PKG}' is not installed (apt-get install ros-${ROS_DISTRO}-${SLAM_PKG//_/-})."
   fi
+  select_rmw
+}
+
+# Resolve RMW to an rmw_* package, export it, and set RMW_EFFECTIVE / VARIANT.
+select_rmw() {
+  if [ "${STACK}" = "ros1" ]; then
+    [ -n "${RMW}" ] && die "RMW applies to ROS2 only (ROS1 always uses TCPROS)."
+    RMW_EFFECTIVE="tcpros"
+    VARIANT="ros1-${ROS_DISTRO}"
+    return
+  fi
+  case "${RMW}" in
+    ""|fastrtps|fastdds|rmw_fastrtps_cpp) RMW_EFFECTIVE="rmw_fastrtps_cpp" ;;
+    cyclonedds|cyclone|rmw_cyclonedds_cpp) RMW_EFFECTIVE="rmw_cyclonedds_cpp" ;;
+    zenoh|rmw_zenoh_cpp) RMW_EFFECTIVE="rmw_zenoh_cpp" ;;
+    rmw_*) RMW_EFFECTIVE="${RMW}" ;;
+    *) die "unknown RMW '${RMW}' (fastrtps, cyclonedds, zenoh or an rmw_* package)" ;;
+  esac
+  ros2 pkg prefix "${RMW_EFFECTIVE}" >/dev/null 2>&1 \
+    || die "${RMW_EFFECTIVE} is not installed (apt-get install ros-${ROS_DISTRO}-${RMW_EFFECTIVE//_/-})."
+  export RMW_IMPLEMENTATION="${RMW_EFFECTIVE}"
+  ros2 daemon stop >/dev/null 2>&1 || true
+  local short="${RMW_EFFECTIVE#rmw_}"
+  VARIANT="ros2-${ROS_DISTRO}-${short%_cpp}"
+}
+
+# rmw_zenoh needs a router; start one for this run unless ZENOH_ROUTER=external.
+start_zenoh_router() {
+  [ "${RMW_EFFECTIVE:-}" = "rmw_zenoh_cpp" ] || return 0
+  [ "${ZENOH_ROUTER:-local}" = "external" ] && return 0
+  start_group ros2 run rmw_zenoh_cpp rmw_zenohd
+  sleep 2
+  group_alive "${LAST_GROUP}" || die "the Zenoh router (rmw_zenohd) did not start."
+  log "Zenoh router started."
+}
+
+apply_cpu_set() {
+  [ -n "${CPU_SET}" ] || return 0
+  command -v taskset >/dev/null 2>&1 || die "CPU_SET needs taskset (util-linux)."
+  taskset -cp "${CPU_SET}" $$ >/dev/null || die "could not pin to CPUs ${CPU_SET}."
+  log "Pinned to CPUs ${CPU_SET}."
+}
+
+write_manifest() {
+  local extra=()
+  [ -n "${BAG_PATH:-}" ] && extra+=(--bag "${BAG_PATH}")
+  [ "${STACK}" = "ros2" ] && [ "${MODE}" = "replay" ] && extra+=(--qos "${QOS_OVERRIDES}")
+  python3 experiments/write_manifest.py "${OUTPUT_DIR}" \
+    --params "config/${ALGO}.yaml" --launch "${LAUNCH_FILE}" ${extra[@]+"${extra[@]}"} \
+    || log "WARNING: could not write run_manifest.json"
 }
 
 ensure_psutil() {
@@ -300,7 +362,7 @@ config_value() {
 
 new_output_dir() {
   local base_id i=1
-  base_id="$(date +"%Y%m%d_%H%M%S")"
+  base_id="$(date +"%Y%m%d_%H%M%S")_${VARIANT:-${STACK}}"
   EXPERIMENT_ID="${base_id}"
   while [ -e "results/raw/${STACK}/${EXPERIMENT_ID}" ]; do
     EXPERIMENT_ID="${base_id}_${i}"; i=$((i + 1))
@@ -333,6 +395,7 @@ run_player() {
   local bag_rc status=0 started_at finished_at samples
 
   source_ros
+  apply_cpu_set
   ensure_psutil || die "psutil is required (apt-get install python3-psutil)."
   resolve_bag "${BAG}"
   if [ "${STACK}" = "ros1" ]; then
@@ -342,6 +405,7 @@ run_player() {
   new_output_dir
   log "Player run ${EXPERIMENT_ID}: ${BAG_PATH} at ${RATE}x -> ${OUTPUT_DIR}"
   started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  start_zenoh_router
   start_resource_logger
   sleep 1
   start_bag_player
@@ -353,12 +417,14 @@ run_player() {
 
   python3 experiments/write_meta.py "${OUTPUT_DIR}/run_meta.json" \
     experiment_id="${EXPERIMENT_ID}" stack="${STACK}" ros_distro="${ROS_DISTRO}" role=player \
+    rmw="${RMW_EFFECTIVE}" variant="${VARIANT}" condition="${CONDITION}" cpu_set="${CPU_SET}" \
     mode=replay bag_id="${BAG_ID}" bag_path="${BAG_PATH}" rate="${RATE}" run_tag="${RUN_TAG}" \
     bag_exit_code="${bag_rc}" metrics_samples="${samples}" exit_status="${status}" \
     started_at="${started_at}" finished_at="${finished_at}" \
     ros_master_uri="${ROS_MASTER_URI:-}" ros_domain_id="${ROS_DOMAIN_ID:-}" \
     rmw_implementation="${RMW_IMPLEMENTATION:-}" \
     || log "WARNING: could not write run_meta.json"
+  write_manifest
   python3 metrics/analyze_run.py "${OUTPUT_DIR}" --quiet || log "WARNING: analysis failed."
   log "Player completed (status ${status})."
   return "${status}"
@@ -373,6 +439,7 @@ run_experiment() {
   local scans_expected="" latency_pid="" latency_events=0
 
   source_ros
+  apply_cpu_set
   ensure_psutil || die "psutil is required for CPU/memory logging (apt-get install python3-psutil)."
 
   BAG_ID=""; BAG_PATH=""
@@ -386,6 +453,7 @@ run_experiment() {
   log "Experiment ID: ${EXPERIMENT_ID}"
   log "Output:        ${OUTPUT_DIR}"
   log "Algorithm:     ${ALGO}"
+  log "Variant:       ${VARIANT}${CONDITION:+ (${CONDITION})}"
   if [ "${ROLE}" = "slam" ]; then
     log "Mode:          replay from a remote player${BAG_PATH:+ (${BAG_PATH})}"
   elif [ "${MODE}" = "replay" ]; then
@@ -401,6 +469,7 @@ run_experiment() {
     wait_for_master || die "roscore did not come up."
     start_group roslaunch "${LAUNCH_FILE}" "algo:=${ALGO}" "use_sim_time:=${USE_SIM_TIME}"
   else
+    start_zenoh_router
     start_group ros2 launch "${LAUNCH_FILE}" "algo:=${ALGO}" "use_sim_time:=${USE_SIM_TIME}"
   fi
   MAPPING_PID="${LAST_GROUP}"
@@ -486,6 +555,7 @@ run_experiment() {
 
   python3 experiments/write_meta.py "${OUTPUT_DIR}/run_meta.json" \
     experiment_id="${EXPERIMENT_ID}" stack="${STACK}" ros_distro="${ROS_DISTRO}" role="${ROLE}" \
+    rmw="${RMW_EFFECTIVE}" variant="${VARIANT}" condition="${CONDITION}" cpu_set="${CPU_SET}" \
     algo="${ALGO}" mode="${MODE}" bag_id="${BAG_ID}" bag_path="${BAG_PATH}" \
     rate="$([ "${ROLE}" = "slam" ] || echo "${RATE}")" \
     duration_s="$([ "${MODE}" = "live" ] && echo "${DURATION}")" \
@@ -498,6 +568,7 @@ run_experiment() {
     params_file="${ALGO}.yaml" rmw_implementation="${RMW_IMPLEMENTATION:-}" \
     ros_master_uri="${ROS_MASTER_URI:-}" ros_domain_id="${ROS_DOMAIN_ID:-}" \
     || log "WARNING: could not write run_meta.json"
+  write_manifest
 
   local ref_args=()
   [ -n "${REFERENCE_TRAJ:-}" ] && ref_args+=(--reference-traj "${REFERENCE_TRAJ}")

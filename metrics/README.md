@@ -10,7 +10,8 @@ Definitions of every metric: [docs/metrics.md](../docs/metrics.md).
 | `trajectory.py` | Trajectory export (TUM) and ATE/RPE (evo semantics). |
 | `map_quality.py` | Map accuracy vs. a reference, and cross-run map consistency. |
 | `analyze_run.py` | Runs all of the above on one run directory → `run_metrics.json`. |
-| `compare_groups.py` | ROS1 vs ROS2 statistics across repeated runs: mean ± 95% CI, Mann-Whitney U, Cliff's delta, parameter identity. |
+| `compare_groups.py` | Statistics across repeated runs, grouped by stack, RMW, distro, variant or condition: mean ± 95% CI, Mann-Whitney U, Cliff's delta, Kruskal-Wallis + Holm for 3+ groups, parameter identity. |
+| `make_report.py` | Markdown report with tables, figures, map consistency and provenance (`make report`). |
 | `summarize_metrics.py`, `compare_runs.py` | Quick summaries of one run / one run per stack (system-wide CPU/memory). |
 | `stats_utils.py`, `metrics_utils.py` | Helpers. |
 

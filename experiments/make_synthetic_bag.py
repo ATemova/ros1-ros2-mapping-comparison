@@ -13,6 +13,8 @@ start), which analyze_run.py picks up automatically:
                              box interiors and outside unknown)
 
 Usage: make_synthetic_bag.py [--out data/bags/synthetic.bag]
+       make_synthetic_bag.py --out data/bags/long30.bag --path loop --duration 1800
+       make_synthetic_bag.py --out data/bags/fast40.bag --scan-hz 40 --beams 1080
 Convert to ROS2 with experiments/convert_bag.sh. Needs `rosbags` and `numpy`.
 """
 
@@ -49,7 +51,37 @@ SEG_A = np.array([w[0] for w in WALLS])
 SEG_B = np.array([w[1] for w in WALLS])
 
 
+PATH = "l"
+LAP = [("line", 9.3), ("turn", math.pi / 2), ("line", 4.0), ("turn", math.pi / 2),
+       ("line", 9.3), ("turn", math.pi / 2), ("line", 4.0), ("turn", math.pi / 2)]
+
+
 def pose_at(t):
+    return pose_loop(t) if PATH == "loop" else pose_l(t)
+
+
+def pose_loop(t):
+    """Laps of a 9.3 m x 4 m rectangle clear of both boxes; loop closure every lap."""
+    v, w = 0.3, math.radians(18.0)
+    lap_t = sum(d / v if k == "line" else d / w for k, d in LAP)
+    t = t % lap_t
+    x, y, yaw = -4.5, -1.0, 0.0
+    for kind, amount in LAP:
+        dur = amount / v if kind == "line" else amount / w
+        step = min(t, dur)
+        if kind == "line":
+            x += v * step * math.cos(yaw)
+            y += v * step * math.sin(yaw)
+        else:
+            yaw += w * step
+        if t <= dur:
+            return x, y, math.atan2(math.sin(yaw), math.cos(yaw)), (v if kind == "line" else 0.0), \
+                (w if kind == "turn" else 0.0)
+        t -= dur
+    return x, y, 0.0, 0.0, 0.0
+
+
+def pose_l(t):
     """Piecewise path: forward 6 m, turn left 90 deg, forward 4 m, then stop."""
     v, w = 0.3, math.radians(18.0)
     x, y, yaw = -4.0, -2.5, 0.0
@@ -142,7 +174,14 @@ def main():
     ap = argparse.ArgumentParser(description="Generate a synthetic ROS1 bag.")
     ap.add_argument("--out", type=Path, default=Path("data/bags/synthetic.bag"))
     ap.add_argument("--duration", type=float, default=40.0, help="seconds (default 40)")
+    ap.add_argument("--path", choices=["l", "loop"], default="l",
+                    help="l: one L-shaped drive (default); loop: repeated laps for long runs")
+    ap.add_argument("--scan-hz", type=float, default=10.0, help="LiDAR rate (default 10)")
+    ap.add_argument("--beams", type=int, default=360, help="beams per scan (default 360)")
     args = ap.parse_args()
+
+    global PATH, SCAN_HZ, N_BEAMS
+    PATH, SCAN_HZ, N_BEAMS = args.path, args.scan_hz, args.beams
 
     if args.out.exists():
         print(f"Refusing to overwrite {args.out}", file=sys.stderr)

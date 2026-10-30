@@ -31,6 +31,16 @@ Experimental design: same algorithm and parameters on both stacks, identical rec
 - Synthetic bag ships ground truth: `synthetic.groundtruth.tum` and `synthetic.reference.yaml/.pgm`, used automatically.
 - Two-machine runs: `ROLE=slam` / `ROLE=player`.
 - `experiments/bag_info.py` (scan count of a bag), `docs/metrics.md`, tests for map quality, trajectory, latency and run analysis.
+- ROS2 middleware comparison: `RMW=fastrtps|cyclonedds|zenoh` (Zenoh router started automatically); `rmw` and `variant` recorded per run.
+- ROS2 Jazzy alongside Humble: `docker/Dockerfile.ros2` takes `ROS_DISTRO`; the launch file configures and activates slam_toolbox's lifecycle node on Jazzy and later.
+- Stress conditions: `CPU_SET` (taskset) natively, `CPUS` / `CPU_SET` / `MEMORY` container limits in `run_matrix.sh`; the applied cgroup/affinity limits are recorded and form the run `condition`. Synthetic bags gain `--path loop` (long runs), `--scan-hz` and `--beams`. SLAM RSS growth and trend metrics.
+- `Makefile`: `make experiment|matrix|rmw|distros|stress|long|report|check|sample-bag|dataset|images|synthetic`.
+- `run_manifest.json` per run (`experiments/write_manifest.py`): git commit and dirty flag, Docker image tag and id, sha256 of parameters, launch file, QoS overrides and bag (cached), ROS package versions, Python libraries, host, limits, ROS/DDS/Zenoh environment.
+- `metrics/make_report.py`: `results/reports/<tag>/report.md` and `results/report.md` with setup, statistics, figures (metric distributions, SLAM CPU/RSS timeline, trajectories, maps), map consistency, provenance and run links.
+- Kruskal-Wallis test and Holm-adjusted p-values for three or more groups (`stats_utils.py`, validated against scipy).
+- Sample-bag path for CI: `experiments/cut_bag.py`, `experiments/fetch_sample_bag.sh`, repository variables `SAMPLE_BAG_URL` / `SAMPLE_BAG_SHA256`.
+- Dataset packaging for Zenodo (`experiments/package_dataset.sh`), `CITATION.cff`, `.zenodo.json`, `docs/dataset.md`.
+- CI: ROS2 replay matrix over Humble/Jazzy × Fast DDS/Cyclone DDS/Zenoh, RMW and distro comparisons and a full report artifact, Docker end-to-end job through `make` (plus the sample bag when configured), Jazzy image build.
 - CI: synthetic bag job, ROS1/ROS2 replay runs that must produce a map, cross-stack comparison in the job summary, unit tests, bag tooling check in the ROS2 image.
 
 ### Changed
@@ -41,7 +51,11 @@ Experimental design: same algorithm and parameters on both stacks, identical rec
 - `run_meta.json` records `map_saved`, `pose_graph_saved`, `params_ok`, `metrics_samples`.
 - ROS2 image adds `ros-humble-nav2-map-server` (needed by `/slam_toolbox/save_map`).
 - `compare_groups.py` adds every headline metric from `run_metrics.json` present in all runs, excludes player runs, adds `role` to the run condition, and formats values with precision matched to their scale.
-- `run_matrix.sh` appends the map-consistency table to the batch report.
+- `run_matrix.sh` runs any list of variants (`VARIANTS="ros1 ros2:humble:cyclonedds ros2:jazzy:zenoh"`), rotates their order every round, passes image and git provenance into each run, and generates the full report.
+- `compare_groups.py` compares any grouping (`--group-by stack|rmw|ros_distro|variant|condition|rate|algo`) against a baseline, accepts comma-separated filters, and reports a single group descriptively.
+- `map_quality.py consistency` pairs maps by variant (or any run property).
+- Run IDs include the variant (`<timestamp>_ros2-humble-fastrtps`), so parallel runs never collide.
+- Images are tagged by distribution: `ros1-mapping:noetic`, `ros2-mapping:humble`, `ros2-mapping:jazzy`.
 - ROS2 image ships `rosbags`; ROS1 image ships `ros-noetic-slam-toolbox`.
 
 ### Removed

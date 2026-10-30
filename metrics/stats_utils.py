@@ -148,3 +148,67 @@ def cliffs_magnitude(d):
     if a < 0.474:
         return "medium"
     return "large"
+
+
+def _gammq(a, x):
+    """Regularized upper incomplete gamma Q(a, x) (Numerical Recipes: series / continued fraction)."""
+    if x <= 0:
+        return 1.0
+    gln = math.lgamma(a)
+    if x < a + 1.0:
+        ap, s, d = a, 1.0 / a, 1.0 / a
+        for _ in range(1000):
+            ap += 1.0
+            d *= x / ap
+            s += d
+            if abs(d) < abs(s) * 1e-15:
+                break
+        return max(0.0, 1.0 - s * math.exp(-x + a * math.log(x) - gln))
+    b = x + 1.0 - a
+    c = 1.0 / 1e-300
+    d = 1.0 / b
+    h = d
+    for i in range(1, 1000):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        if abs(d) < 1e-300:
+            d = 1e-300
+        c = b + an / c
+        if abs(c) < 1e-300:
+            c = 1e-300
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-15:
+            break
+    return min(1.0, math.exp(-x + a * math.log(x) - gln) * h)
+
+
+def chi2_sf(x, df):
+    return _gammq(df / 2.0, x / 2.0)
+
+
+def kruskal_wallis(groups):
+    """Kruskal-Wallis H test with tie correction (matches scipy.stats.kruskal).
+
+    groups: list of sequences. Returns dict(h, df, p)."""
+    groups = [list(g) for g in groups if len(g) > 0]
+    k = len(groups)
+    if k < 2:
+        return {"h": float("nan"), "df": 0, "p": float("nan")}
+    allv = [v for g in groups for v in g]
+    n = len(allv)
+    ranks, ties = _ranks(allv)
+    h = 0.0
+    pos = 0
+    for g in groups:
+        r = sum(ranks[pos:pos + len(g)])
+        h += r * r / len(g)
+        pos += len(g)
+    h = 12.0 / (n * (n + 1)) * h - 3.0 * (n + 1)
+    correction = 1.0 - sum(t ** 3 - t for t in ties) / float(n ** 3 - n) if n > 1 else 1.0
+    if correction <= 0:
+        return {"h": float("nan"), "df": k - 1, "p": float("nan")}
+    h /= correction
+    return {"h": h, "df": k - 1, "p": chi2_sf(h, k - 1)}

@@ -1,24 +1,36 @@
 #!/usr/bin/env python3
-"""Compare repeated ROS1 and ROS2 runs with statistics. Standard library only.
+"""Compare groups of repeated runs with statistics. Standard library only.
 
-Every run directory under results/raw/<stack>/<run_id>/ that has run_meta.json and
-cpu_mem.csv is reduced to per-run metrics, then the ROS1 and ROS2 groups are compared:
+Groups are formed by one run property (--group-by):
+    stack        ROS1 vs ROS2 (default)
+    rmw          ROS2 middlewares: Fast DDS vs Cyclone DDS vs Zenoh
+    ros_distro   e.g. Humble vs Jazzy
+    variant      stack + distro + RMW in one label (any mix of the above)
+    condition    stress conditions, e.g. default vs cpus1 vs quota0.5
+    rate, algo   playback rate, SLAM algorithm
 
-    mean +/- 95% CI across runs, ROS2 - ROS1 difference,
-    two-sided Mann-Whitney U p-value, Cliff's delta effect size.
+Each run is reduced to per-run metrics (system CPU/memory from cpu_mem.csv plus the
+headline metrics in run_metrics.json). For every metric the report gives each group's
+mean +/- 95% CI and, for every group against the baseline (--baseline, default: first
+group), the difference, a two-sided Mann-Whitney U p-value and Cliff's delta. With three
+or more groups it adds a Kruskal-Wallis p-value and Holm-adjusted pairwise p-values.
 
-Runs are only comparable when they share algorithm, mode, bag and playback rate; if the
-selected runs mix those, the script stops and lists the combinations so you can filter.
+Runs are only pooled when everything except the grouping property matches (algorithm,
+mode, bag, rate, role, condition, and stack/distro/RMW where they are not what is being
+compared); otherwise the script stops and lists the combinations so you can filter.
 
 Usage:
-    compare_groups.py --tag matrix_20261030
-    compare_groups.py --algo slam_toolbox --mode replay --bag corridor_01
-    compare_groups.py --tag T --json report.json --csv runs.csv --markdown report.md
+    compare_groups.py --tag T
+    compare_groups.py --tag T --group-by rmw --baseline rmw_fastrtps_cpp
+    compare_groups.py --tag T --group-by variant --variant ros1-noetic,ros2-humble-cyclonedds
+    compare_groups.py --tag T --group-by variant --json r.json --csv runs.csv --markdown r.md
+
+Filters accept comma-separated values.
     compare_groups.py --tag T --require-identical-params
 
 Parameter equivalence: each run's effective_params.json (what the SLAM node actually
-held) is compared across all selected runs. Differences are listed in the report, and
---require-identical-params turns them into a failure.
+held) is compared across all selected runs; --require-identical-params turns differences
+into a failure.
 """
 
 import argparse
@@ -29,9 +41,9 @@ import os
 import sys
 
 from metrics_utils import read_metrics
-from stats_utils import cliffs_delta, cliffs_magnitude, mann_whitney_u, mean_ci95, percentile
+from stats_utils import (cliffs_delta, cliffs_magnitude, kruskal_wallis, mann_whitney_u, mean_ci95,
+                         percentile)
 
-STACKS = ("ros1", "ros2")
 METRICS = [
     ("cpu_mean", "CPU mean", "%"),
     ("cpu_p95", "CPU p95", "%"),
@@ -46,6 +58,8 @@ EXTRA_METRICS = [
     ("slam_cpu_p95", "SLAM process CPU p95", "% core"),
     ("slam_rss_mean_mb", "SLAM process RSS mean", "MB"),
     ("slam_rss_peak_mb", "SLAM process RSS peak", "MB"),
+    ("slam_rss_growth_mb", "SLAM process RSS growth", "MB"),
+    ("slam_rss_slope_mb_per_min", "SLAM process RSS trend", "MB/min"),
     ("middleware_cpu_mean", "Middleware CPU mean", "% core"),
     ("middleware_rss_mean_mb", "Middleware RSS mean", "MB"),
     ("launch_cpu_mean", "Launch process CPU mean", "% core"),
@@ -68,9 +82,57 @@ EXTRA_METRICS = [
     ("map_wall_error_m", "Map wall error vs reference", "m"),
     ("map_completeness_m", "Map completeness error vs reference", "m"),
 ]
-COMPAT_KEYS = ("algo", "mode", "bag_id", "rate", "role")
+
+GROUP_KEYS = ("stack", "variant", "rmw", "ros_distro", "condition", "rate", "algo")
+BASE_COMPAT = ("algo", "mode", "bag_id", "rate", "role", "condition")
+STACK_TIED = ("stack", "ros_distro", "rmw")
+PREFERRED_ORDER = ("ros1", "tcpros", "rmw_fastrtps_cpp", "humble", "default")
 
 
+# ---------------------------------------------------------------- run properties
+def prop(r, key):
+    """Run property with defaults for runs recorded before the property existed."""
+    v = r.get(key)
+    if v not in (None, ""):
+        return str(v)
+    if key == "rmw":
+        return "tcpros" if r.get("stack") == "ros1" else "rmw_fastrtps_cpp"
+    if key == "condition":
+        return "default"
+    if key == "role":
+        return "all"
+    if key == "variant":
+        rmw = prop(r, "rmw")
+        if r.get("stack") == "ros1":
+            return f"ros1-{r.get('ros_distro') or 'noetic'}"
+        short = rmw[4:] if rmw.startswith("rmw_") else rmw
+        short = short[:-4] if short.endswith("_cpp") else short
+        return f"ros2-{r.get('ros_distro') or 'humble'}-{short}"
+    return "None" if v is None else str(v)
+
+
+def compat_keys(group_by):
+    """(keys that must match across groups, keys that must be constant within a group)."""
+    if group_by in ("stack", "variant"):
+        return tuple(k for k in BASE_COMPAT if k != group_by), STACK_TIED
+    across = tuple(k for k in BASE_COMPAT + STACK_TIED if k != group_by)
+    return across, ()
+
+
+def order_groups(names, baseline=None):
+    def key(n):
+        return (PREFERRED_ORDER.index(n) if n in PREFERRED_ORDER else len(PREFERRED_ORDER), n)
+
+    names = sorted(names, key=key)
+    if baseline:
+        if baseline not in names:
+            raise SystemExit(f"baseline '{baseline}' is not one of the groups: {', '.join(names)}")
+        names.remove(baseline)
+        names.insert(0, baseline)
+    return names
+
+
+# ---------------------------------------------------------------- per-run metrics
 def load_elapsed(path):
     out = []
     with open(path, newline="") as f:
@@ -118,20 +180,19 @@ def discover(results_dir):
     return runs
 
 
+FILTERS = (("algo", "algo"), ("mode", "mode"), ("bag", "bag_id"), ("tag", "run_tag"),
+           ("stack", "stack"), ("rmw", "rmw"), ("distro", "ros_distro"),
+           ("condition", "condition"), ("variant", "variant"))
+
+
 def select(runs, args):
     out = []
     for r in runs:
-        if r.get("stack") not in STACKS:
+        if r.get("stack") not in ("ros1", "ros2"):
             continue
-        if args.algo and r.get("algo") != args.algo:
+        if prop(r, "role") == "player":
             continue
-        if args.mode and r.get("mode") != args.mode:
-            continue
-        if args.bag and r.get("bag_id") != args.bag:
-            continue
-        if args.tag and r.get("run_tag") != args.tag:
-            continue
-        if r.get("role") == "player":
+        if any(getattr(args, a) and prop(r, k) not in getattr(args, a).split(",") for a, k in FILTERS):
             continue
         if not args.include_failed and r.get("exit_status") not in (0, None):
             continue
@@ -142,6 +203,7 @@ def select(runs, args):
     return out
 
 
+# ---------------------------------------------------------------- parameters
 def _norm(v):
     if isinstance(v, bool):
         return v
@@ -151,12 +213,12 @@ def _norm(v):
 
 
 def param_check(groups):
-    """Compare effective_params.json across runs. Returns a summary dict."""
+    """Compare effective_params.json across all runs of all groups."""
     values = {}
-    missing = {s: set() for s in STACKS}
+    missing = {g: set() for g in groups}
     without = []
-    for stack in STACKS:
-        for r in groups[stack]:
+    for g, runs in groups.items():
+        for r in runs:
             path = os.path.join(r["_dir"], "effective_params.json")
             try:
                 with open(path) as f:
@@ -164,21 +226,84 @@ def param_check(groups):
             except (OSError, ValueError):
                 without.append(r["_dir"])
                 continue
-            missing[stack].update(eff.get("missing", []))
+            missing[g].update(eff.get("missing", []))
             for key, v in eff.get("effective", {}).items():
-                values.setdefault(key, {}).setdefault(_norm(v), []).append(f"{stack}:{os.path.basename(r['_dir'])}")
-    differing = {k: {str(v): runs for v, runs in vals.items()} for k, vals in values.items() if len(vals) > 1}
-    checked = sum(len(groups[s]) for s in STACKS) - len(without)
+                values.setdefault(key, {}).setdefault(_norm(v), []).append(f"{g}:{os.path.basename(r['_dir'])}")
+    differing = {k: {str(v): rr for v, rr in vals.items()} for k, vals in values.items() if len(vals) > 1}
+    checked = sum(len(v) for v in groups.values()) - len(without)
     return {
         "runs_checked": checked,
         "runs_without_dump": without,
         "keys_compared": len(values),
         "differing": differing,
-        "missing": {s: sorted(missing[s]) for s in STACKS},
+        "missing": {g: sorted(m) for g, m in missing.items()},
         "identical": checked > 0 and not differing and not without,
     }
 
 
+# ---------------------------------------------------------------- statistics
+def holm(pvalues):
+    """Holm-Bonferroni adjusted p-values, same order as the input."""
+    idx = sorted(range(len(pvalues)), key=lambda i: pvalues[i])
+    m = len(pvalues)
+    adj = [0.0] * m
+    running = 0.0
+    for rank, i in enumerate(idx):
+        running = max(running, min(1.0, (m - rank) * pvalues[i]))
+        adj[i] = running
+    return adj
+
+
+def available_metrics(groups):
+    runs = [r for g in groups.values() for r in g]
+    extra = [m for m in EXTRA_METRICS if all(r["metrics"].get(m[0]) is not None for r in runs)]
+    return METRICS + extra
+
+
+def build_report(groups, order, group_by, condition, trim_start, params):
+    rows = []
+    base = order[0]
+    for key, label, unit in available_metrics(groups):
+        vals = {g: [r["metrics"][key] for r in groups[g]] for g in order}
+        stats = {}
+        for g in order:
+            mu, sd, ci = mean_ci95(vals[g])
+            stats[g] = {"n": len(vals[g]), "mean": mu, "sd": sd, "ci95": ci, "values": vals[g]}
+        comps = []
+        for g in order[1:]:
+            mw = mann_whitney_u(vals[base], vals[g])
+            d = cliffs_delta(vals[g], vals[base])
+            mb, mg = stats[base]["mean"], stats[g]["mean"]
+            comps.append({
+                "group": g, "baseline": base,
+                "diff": mg - mb,
+                "diff_pct": (mg - mb) / mb * 100.0 if mb else float("nan"),
+                "mann_whitney_u": mw["u"], "p_value": mw["p"], "p_method": mw["method"],
+                "cliffs_delta": d, "effect": cliffs_magnitude(d),
+            })
+        if len(comps) > 1:
+            ps = [c["p_value"] for c in comps]
+            if all(p == p for p in ps):
+                for c, pa in zip(comps, holm(ps)):
+                    c["p_holm"] = pa
+        row = {"metric": key, "label": label, "unit": unit, "groups": stats, "comparisons": comps}
+        if len(order) > 2:
+            kw = kruskal_wallis([vals[g] for g in order])
+            row["kruskal_wallis"] = kw
+        rows.append(row)
+    return {
+        "group_by": group_by,
+        "groups": order,
+        "baseline": base,
+        "condition": condition,
+        "trim_start_s": trim_start,
+        "runs": {g: [r["_dir"] for r in groups[g]] for g in order},
+        "metrics": rows,
+        "parameters": params,
+    }
+
+
+# ---------------------------------------------------------------- output
 def fmt(v, digits=None):
     if v is None or v != v:
         return "n/a"
@@ -194,69 +319,59 @@ def fmt_p(p):
     return "<0.001" if p < 0.001 else f"{p:.3f}"
 
 
-def available_metrics(groups):
-    runs = groups["ros1"] + groups["ros2"]
-    extra = [m for m in EXTRA_METRICS if all(r["metrics"].get(m[0]) is not None for r in runs)]
-    return METRICS + extra
-
-
-def build_report(groups, condition, trim_start, params):
-    rows = []
-    for key, label, unit in available_metrics(groups):
-        a = [r["metrics"][key] for r in groups["ros1"]]
-        b = [r["metrics"][key] for r in groups["ros2"]]
-        ma, sda, ha = mean_ci95(a)
-        mb, sdb, hb = mean_ci95(b)
-        mw = mann_whitney_u(a, b)
-        d = cliffs_delta(b, a)
-        rows.append({
-            "metric": key, "label": label, "unit": unit,
-            "ros1": {"n": len(a), "mean": ma, "sd": sda, "ci95": ha, "values": a},
-            "ros2": {"n": len(b), "mean": mb, "sd": sdb, "ci95": hb, "values": b},
-            "diff_ros2_minus_ros1": mb - ma,
-            "diff_pct": (mb - ma) / ma * 100.0 if ma else float("nan"),
-            "mann_whitney_u": mw["u"], "p_value": mw["p"], "p_method": mw["method"],
-            "cliffs_delta_ros2_vs_ros1": d, "effect": cliffs_magnitude(d),
-        })
-    return {
-        "condition": condition,
-        "trim_start_s": trim_start,
-        "runs": {s: [r["_dir"] for r in groups[s]] for s in STACKS},
-        "metrics": rows,
-        "parameters": params,
-    }
+def label(g, group_by):
+    if group_by == "stack":
+        return g.upper()
+    return g
 
 
 def to_markdown(report):
     c = report["condition"]
-    n1 = len(report["runs"]["ros1"])
-    n2 = len(report["runs"]["ros2"])
+    gb = report["group_by"]
+    order = report["groups"]
+    base = report["baseline"]
+    ns = {g: len(report["runs"][g]) for g in order}
+    names = [label(g, gb) for g in order]
+    k = len(order)
+    title = " vs ".join(names) if k <= 4 else f"{k} groups by {gb}"
+    fixed = [f"{key}: `{c[key] if c.get(key) not in (None, '') else '-'}`"
+             for key in ("algo", "mode", "bag_id", "rate", "condition", "stack", "ros_distro", "rmw")
+             if key in c]
     lines = [
-        "## ROS1 vs ROS2",
+        f"## {title}",
         "",
-        f"Algorithm: `{c['algo']}` · mode: `{c['mode']}` · bag: `{c['bag_id'] or '-'}` · "
-        f"rate: `{c['rate'] if c['rate'] is not None else '-'}` · runs: ROS1 n={n1}, ROS2 n={n2}"
+        " · ".join(fixed) + " · runs: " + ", ".join(f"{label(g, gb)} n={ns[g]}" for g in order)
         + (f" · first {report['trim_start_s']:g}s trimmed" if report["trim_start_s"] else ""),
         "",
-        "| Metric | ROS1 mean ± 95% CI | ROS2 mean ± 95% CI | Δ ROS2−ROS1 | p (MWU) | Cliff's δ |",
-        "|---|---|---|---|---|---|",
     ]
+    head = ["Metric"] + [f"{n} mean ± 95% CI" for n in names]
+    head += [f"{label(g, gb)} vs {label(base, gb)}" for g in order[1:]]
+    if k > 2:
+        head.append("Kruskal-Wallis p")
+    lines += ["| " + " | ".join(head) + " |", "|" + "---|" * len(head)]
+
     for r in report["metrics"]:
         u = r["unit"]
-        scale = max(abs(x) for x in (r["ros1"]["mean"], r["ros2"]["mean"], 0.0) if x == x)
+        means = [r["groups"][g]["mean"] for g in order]
+        scale = max([abs(x) for x in means if x == x] + [0.0])
         d = 2 if scale >= 10 or scale == 0 else 3 if scale >= 1 else 4
-        lines.append(
-            f"| {r['label']}{f' ({u})' if u else ''} "
-            f"| {fmt(r['ros1']['mean'], d)} ± {fmt(r['ros1']['ci95'], d)} "
-            f"| {fmt(r['ros2']['mean'], d)} ± {fmt(r['ros2']['ci95'], d)} "
-            f"| {fmt(r['diff_ros2_minus_ros1'], d)} ({fmt(r['diff_pct'], 1)}%) "
-            f"| {fmt_p(r['p_value'])} "
-            f"| {fmt(r['cliffs_delta_ros2_vs_ros1'], 2)} ({r['effect']}) |"
-        )
+        cells = [f"{r['label']}{f' ({u})' if u else ''}"]
+        cells += [f"{fmt(r['groups'][g]['mean'], d)} ± {fmt(r['groups'][g]['ci95'], d)}" for g in order]
+        for cmp_ in r["comparisons"]:
+            p = cmp_.get("p_holm", cmp_["p_value"])
+            cells.append(f"{'+' if cmp_['diff'] > 0 else ''}{fmt(cmp_['diff'], d)} ({fmt(cmp_['diff_pct'], 1)}%), "
+                         f"p={fmt_p(p)}, δ={fmt(cmp_['cliffs_delta'], 2)}")
+        if k > 2:
+            cells.append(fmt_p(r["kruskal_wallis"]["p"]))
+        lines.append("| " + " | ".join(cells) + " |")
+
     lines += [
         "",
-        "Per-run metrics are the run's mean/p95/peak/growth; the table summarises them across runs. "
-        "Cliff's δ > 0 means ROS2 is higher.",
+        "Single group: no comparison." if k == 1 else
+        f"Comparisons are against **{label(base, gb)}**: difference (percent), two-sided Mann-Whitney U "
+        "p-value" + (", Holm-adjusted across the comparisons in a row" if k > 2 else "")
+        + ", and Cliff's δ (> 0 means higher than the baseline). "
+        "Per-run values are each run's mean/p95/peak/growth; the table summarises them across runs.",
     ]
     p = report["parameters"]
     lines.append("")
@@ -268,47 +383,55 @@ def to_markdown(report):
         if p["runs_without_dump"]:
             lines.append(f"> {len(p['runs_without_dump'])} run(s) have no effective_params.json.")
         for key, vals in sorted(p["differing"].items()):
-            lines.append(f"> `{key}` differs: " + "; ".join(f"{v} ({len(r)} run(s))" for v, r in vals.items()))
-    for stack in STACKS:
-        if p["missing"][stack]:
+            lines.append(f"> `{key}` differs: " + "; ".join(f"{v} ({len(rr)} run(s))" for v, rr in vals.items()))
+    for g in order:
+        if p["missing"].get(g):
             lines.append("")
-            lines.append(f"Not held by the {stack.upper()} node (ignored by that version): "
-                         + ", ".join(f"`{k}`" for k in p["missing"][stack]))
-    if min(n1, n2) < 5:
+            lines.append(f"Not held by the {label(g, gb)} node (ignored by that version): "
+                         + ", ".join(f"`{x}`" for x in p["missing"][g]))
+    smallest = min(ns.values())
+    if smallest < 5:
         lines.append("")
         lines.append(
-            f"> Only {min(n1, n2)} run(s) in the smaller group. With fewer than 4 runs per group "
-            "the two-sided Mann-Whitney test cannot reach p < 0.05; collect at least 5 per stack."
+            f"> Only {smallest} run(s) in the smallest group. With fewer than 4 runs per group "
+            "the two-sided Mann-Whitney test cannot reach p < 0.05; collect at least 5 per group."
         )
     return "\n".join(lines) + "\n"
 
 
-def write_runs_csv(path, groups):
-    fields = ["stack", "run_dir", "experiment_id", "algo", "mode", "bag_id", "rate", "run_tag",
-              "samples"] + [k for k, _, _ in METRICS] + [k for k, _, _ in EXTRA_METRICS]
+def write_runs_csv(path, groups, group_by):
+    fields = ["group", "stack", "ros_distro", "rmw", "variant", "condition", "run_dir", "experiment_id",
+              "algo", "mode", "bag_id", "rate", "run_tag", "samples"]
+    fields += [k for k, _, _ in METRICS + EXTRA_METRICS]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
-        for stack in STACKS:
-            for r in groups[stack]:
-                row = {
-                    "stack": stack, "run_dir": r["_dir"], "experiment_id": r.get("experiment_id"),
-                    "algo": r.get("algo"), "mode": r.get("mode"), "bag_id": r.get("bag_id"),
-                    "rate": r.get("rate"), "run_tag": r.get("run_tag"),
-                    "samples": r["metrics"]["samples"],
-                }
+        for g, runs in groups.items():
+            for r in runs:
+                row = {"group": g, "run_dir": r["_dir"], "samples": r["metrics"]["samples"]}
+                for key in ("stack", "ros_distro", "rmw", "variant", "condition", "experiment_id",
+                            "algo", "mode", "bag_id", "rate", "run_tag"):
+                    row[key] = prop(r, key) if key in ("rmw", "variant", "condition") else r.get(key)
                 row.update({k: (round(r["metrics"][k], 6) if r["metrics"].get(k) is not None else None)
                             for k, _, _ in METRICS + EXTRA_METRICS})
                 w.writerow(row)
 
 
+# ---------------------------------------------------------------- main
 def main():
-    ap = argparse.ArgumentParser(description="Compare repeated ROS1 vs ROS2 runs.")
+    ap = argparse.ArgumentParser(description="Compare groups of repeated runs.")
     ap.add_argument("--results", default="results/raw", help="results root (default results/raw)")
+    ap.add_argument("--group-by", default="stack", choices=GROUP_KEYS)
+    ap.add_argument("--baseline", help="group the others are compared with (default: first group)")
     ap.add_argument("--algo", help="filter: algorithm (slam_toolbox, gmapping)")
     ap.add_argument("--mode", choices=["live", "replay"], help="filter: run mode")
     ap.add_argument("--bag", help="filter: bag id (bag file stem)")
     ap.add_argument("--tag", help="filter: run_tag")
+    ap.add_argument("--stack", choices=["ros1", "ros2"], help="filter: stack")
+    ap.add_argument("--rmw", help="filter: RMW (e.g. rmw_cyclonedds_cpp)")
+    ap.add_argument("--distro", help="filter: ROS distribution")
+    ap.add_argument("--condition", help="filter: run condition")
+    ap.add_argument("--variant", help="filter: variant label(s), e.g. ros1-noetic,ros2-humble-zenoh")
     ap.add_argument("--trim-start", type=float, default=0.0,
                     help="ignore samples in the first N seconds of each run")
     ap.add_argument("--include-failed", action="store_true", help="keep runs with exit_status != 0")
@@ -320,15 +443,17 @@ def main():
     args = ap.parse_args()
 
     runs = select(discover(args.results), args)
+    across, within = compat_keys(args.group_by)
 
-    combos = sorted({tuple(str(r.get(k)) for k in COMPAT_KEYS) for r in runs})
+    combos = sorted({tuple(prop(r, k) for k in across) for r in runs})
     if len(combos) > 1:
-        print("Selected runs mix conditions; filter with --algo/--mode/--bag/--tag:", file=sys.stderr)
+        print(f"Selected runs differ in more than '{args.group_by}'; filter with --tag/--algo/--bag/...:",
+              file=sys.stderr)
         for c in combos:
-            print("  " + ", ".join(f"{k}={v}" for k, v in zip(COMPAT_KEYS, c)), file=sys.stderr)
+            print("  " + ", ".join(f"{k}={v}" for k, v in zip(across, c)), file=sys.stderr)
         sys.exit(1)
 
-    groups = {s: [] for s in STACKS}
+    groups = {}
     for r in runs:
         try:
             m = run_metrics(r["_csv"], args.trim_start)
@@ -346,18 +471,29 @@ def main():
             except (OSError, ValueError) as e:
                 print(f"{r['_dir']}: unreadable run_metrics.json ({e})", file=sys.stderr)
         r["metrics"] = m
-        groups[r["stack"]].append(r)
+        groups.setdefault(prop(r, args.group_by), []).append(r)
 
-    if not groups["ros1"] or not groups["ros2"]:
-        print(f"Need at least one run per stack (found ROS1={len(groups['ros1'])}, "
-              f"ROS2={len(groups['ros2'])}).", file=sys.stderr)
+    for g, rr in groups.items():
+        for k in within:
+            vals = sorted({prop(r, k) for r in rr})
+            if len(vals) > 1:
+                print(f"Group '{g}' mixes {k}: {', '.join(vals)}. Use --group-by variant, or filter.",
+                      file=sys.stderr)
+                sys.exit(1)
+
+    if not groups:
+        print("No runs match the selection.", file=sys.stderr)
         sys.exit(1)
+    if len(groups) == 1:
+        print(f"Only one group by '{args.group_by}' ({next(iter(groups))}): descriptive statistics only.",
+              file=sys.stderr)
 
-    first = groups["ros1"][0]
-    condition = {k: first.get(k) for k in COMPAT_KEYS}
+    order = order_groups(list(groups), args.baseline)
+    first = groups[order[0]][0]
+    condition = {k: prop(first, k) for k in across}
     condition["run_tag"] = args.tag
     params = param_check(groups)
-    report = build_report(groups, condition, args.trim_start, params)
+    report = build_report(groups, order, args.group_by, condition, args.trim_start, params)
     md = to_markdown(report)
     print(md, end="")
 
@@ -369,7 +505,7 @@ def main():
             json.dump(report, f, indent=2)
             f.write("\n")
     if args.csv:
-        write_runs_csv(args.csv, groups)
+        write_runs_csv(args.csv, groups, args.group_by)
 
     if args.require_identical_params and not params["identical"]:
         print("ERROR: effective parameters are not identical across runs.", file=sys.stderr)

@@ -62,9 +62,10 @@ def processes_section(path):
                 n = int(row["n_procs"])
                 cpu = float(row["cpu_percent"])
                 rss = float(row["rss_mb"])
+                t = float(row["elapsed_time_sec"])
             except (KeyError, ValueError):
                 continue
-            per_role.setdefault(row["role"], []).append((n, cpu, rss))
+            per_role.setdefault(row["role"], []).append((n, cpu, rss, t))
     out = {}
     for role, rows in per_role.items():
         live = [r for r in rows if r[0] > 0]
@@ -80,8 +81,22 @@ def processes_section(path):
             "cpu_max": max(cpu),
             "rss_mean_mb": mean(rss),
             "rss_peak_mb": max(rss),
+            "rss_growth_mb": rss[-1] - rss[0],
+            "rss_slope_mb_per_min": slope([r[3] for r in live], rss) * 60.0,
         }
     return out
+
+
+def slope(x, y):
+    """Least-squares slope dy/dx (0 when undefined)."""
+    n = len(x)
+    if n < 2:
+        return 0.0
+    mx, my = sum(x) / n, sum(y) / n
+    sxx = sum((a - mx) ** 2 for a in x)
+    if sxx == 0:
+        return 0.0
+    return sum((a - mx) * (b - my) for a, b in zip(x, y)) / sxx
 
 
 def network_section(path):
@@ -141,6 +156,9 @@ def summarize(m):
             put(f"{prefix}_cpu_p95", r["cpu_p95"])
             put(f"{prefix}_rss_mean_mb", r["rss_mean_mb"])
             put(f"{prefix}_rss_peak_mb", r["rss_peak_mb"])
+            if prefix == "slam":
+                put("slam_rss_growth_mb", r["rss_growth_mb"])
+                put("slam_rss_slope_mb_per_min", r["rss_slope_mb_per_min"])
     net = m.get("network") or {}
     put("net_total_mb", net.get("total_mb"))
     put("net_rate_kBps", net.get("rate_kBps"))

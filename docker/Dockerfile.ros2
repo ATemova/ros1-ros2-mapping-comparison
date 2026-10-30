@@ -1,9 +1,12 @@
-# ROS2 Humble environment for the mapping experiments.
-# Also carries the bag tooling (rosbags), so bag conversion, validation and the
-# statistics report run here without host Python dependencies.
-# Build:  docker build -f docker/Dockerfile.ros2 -t ros2-mapping .
-# Run:    docker run -it --rm -v "$PWD":/work -w /work ros2-mapping ./experiments/run_ros2.sh
-FROM ros:humble
+# ROS2 environment for the mapping experiments (Humble by default, Jazzy via build arg).
+# Ships Fast DDS (default), Cyclone DDS and, where the distro has a binary, rmw_zenoh,
+# plus the bag tooling (rosbags), so conversion, validation and reports run here too.
+# Build:  docker build -f docker/Dockerfile.ros2 -t ros2-mapping:humble .
+#         docker build -f docker/Dockerfile.ros2 --build-arg ROS_DISTRO=jazzy -t ros2-mapping:jazzy .
+# Run:    docker run -it --rm -v "$PWD":/work -w /work ros2-mapping:humble ./experiments/run_ros2.sh
+ARG ROS_DISTRO=humble
+FROM ros:${ROS_DISTRO}
+ARG ROS_DISTRO
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-pip \
@@ -12,12 +15,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-yaml \
       python3-pandas \
       python3-matplotlib \
-      ros-humble-slam-toolbox \
-      ros-humble-nav2-map-server \
+      ros-${ROS_DISTRO}-slam-toolbox \
+      ros-${ROS_DISTRO}-nav2-map-server \
+      ros-${ROS_DISTRO}-rmw-fastrtps-cpp \
+      ros-${ROS_DISTRO}-rmw-cyclonedds-cpp \
+ && (apt-get install -y --no-install-recommends ros-${ROS_DISTRO}-rmw-zenoh-cpp \
+     || echo "NOTE: ros-${ROS_DISTRO}-rmw-zenoh-cpp not available; RMW=zenoh will fail with a clear message") \
  && rm -rf /var/lib/apt/lists/*
 
 COPY experiments/requirements-bags.txt /tmp/requirements-bags.txt
-RUN pip3 install --no-cache-dir -r /tmp/requirements-bags.txt && rm /tmp/requirements-bags.txt
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --no-cache-dir -r /tmp/requirements-bags.txt \
+ && rm /tmp/requirements-bags.txt
 
 WORKDIR /work
 CMD ["bash"]
