@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ROS2 map saving: when slam_toolbox's `save_map` service does not write the map (its internal `map_saver_cli` gives up after 2 s, seen with Fast DDS on Jazzy), the runner retries with `map_saver_cli` directly (10 s timeout, transient-local subscription).
 - `time_to_first_map_s` used the ROS-clock receive time of the first scan, which is 0 when scans arrive before the first `/clock` message; it now uses the first scan's header stamp. Other ROS-clock metrics skip events received before `/clock`.
 - Map/TF latency, map period and jitter now only use events while input is flowing (up to 1 s after the last scan); maps published after the bag ended inflated p95 latency to seconds. Wall-clock map period and jitter added to the summary (slam_toolbox on ROS2 runs its map timer on wall time).
+- Maps saved by ROS1 `map_saver` record an absolute image path; `map_quality.load_map` now falls back to the file next to the `.yaml` when that path does not exist (moved run folders, CI artifacts), which broke the report's map figure. A failing figure no longer aborts the report.
 - CI jobs start from an empty `results/` folder, and run outputs (`results/raw/`, `results/reports/`, `results/report.md`) are git-ignored; locally committed test runs had broken the verification step.
 
 Experimental design: same algorithm and parameters on both stacks, identical recorded input, repeated runs with statistics.
