@@ -97,9 +97,14 @@ def _parse_yaml(path):
 
 def load_map(yaml_path):
     meta = _parse_yaml(yaml_path)
-    img_path = meta["image"]
+    img_path = str(meta["image"])
+    here = os.path.dirname(os.path.abspath(yaml_path))
     if not os.path.isabs(img_path):
-        img_path = os.path.join(os.path.dirname(os.path.abspath(yaml_path)), img_path)
+        img_path = os.path.join(here, img_path)
+    elif not os.path.exists(img_path):
+        # ROS1 map_saver writes an absolute path; the run folder may have moved since
+        # (another machine, a CI artifact, a container mount), so look next to the yaml
+        img_path = os.path.join(here, os.path.basename(img_path))
     img = read_pgm(img_path).astype(np.float64)
     p = img / 255.0 if int(meta.get("negate", 0)) else (255.0 - img) / 255.0
     cls = np.full(img.shape, UNKNOWN, dtype=np.int8)

@@ -75,6 +75,16 @@ class MapQualityTest(unittest.TestCase):
         self.assertAlmostEqual(r["cell_accuracy"], 1.0)
         self.assertAlmostEqual(r["wall_error_m"], 0.0)
 
+    def test_absolute_image_path_from_another_machine(self):
+        cls_, res, origin = room()
+        self.write("moved_run", cls_, res, origin)
+        path = os.path.join(self.d, "moved_run.yaml")
+        with open(path) as f:
+            text = f.read()
+        with open(path, "w") as f:
+            f.write(text.replace("image: moved_run.pgm", "image: /__w/repo/repo/results/raw/x/moved_run.pgm"))
+        self.assertEqual(load_map(path)["cls"].shape, cls_.shape)
+
     def test_recovers_rotation_and_shift(self):
         ref = self.write("ref", *room())
         moved = self.write("moved", *room(math.radians(7), (0.6, -0.4), noise=0.01))

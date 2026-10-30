@@ -310,7 +310,11 @@ def main():
         if cg.returncode != 0 and cg.stderr.strip():
             lines += ["> " + cg.stderr.strip().replace("\n", "\n> "), ""]
 
-        figs, fig_note = figures(rows, groups, out)
+        try:
+            figs, fig_note = figures(rows, groups, out)
+        except Exception as e:  # noqa: BLE001 - a broken figure must not lose the report
+            figs, fig_note = [], f"Figures failed: {type(e).__name__}: {e}"
+            print(f"WARNING: {fig_note}", file=sys.stderr)
         if figs or fig_note:
             lines += ["## Figures", ""]
             for name, caption in figs:
