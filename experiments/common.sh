@@ -10,7 +10,9 @@
 #   DURATION      live-mode run length in seconds (default 300); ignored for replay
 #   SETTLE        seconds to keep SLAM running after the bag ends (default 5)
 #   STARTUP_WAIT  seconds to wait for the SLAM node to appear (default 15)
-#   REQUIRE_MAP   1 = fail if no /map was received (default: 1 for replay, 0 for live)
+#   REQUIRE_MAP   1 = fail unless a /map was received and saved (default: 1 replay, 0 live)
+#   REQUIRE_PARAMS 1 = fail if the node holds a parameter value that differs from the
+#                 config file, or its parameters cannot be read (default 1)
 #   RUN_TAG       free-form label stored in run_meta.json (used to group repeated runs)
 #   ROS_DISTRO    override the ROS distribution to source
 
@@ -35,6 +37,7 @@ QOS_OVERRIDES="${REPO_ROOT}/config/qos_overrides.yaml"
 if [ -n "${BAG}" ]; then MODE="replay"; else MODE="live"; fi
 if [ "${MODE}" = "replay" ]; then USE_SIM_TIME=true; else USE_SIM_TIME=false; fi
 REQUIRE_MAP="${REQUIRE_MAP:-$([ "${MODE}" = "replay" ] && echo 1 || echo 0)}"
+REQUIRE_PARAMS="${REQUIRE_PARAMS:-1}"
 
 case "${STACK}" in
   ros1)
@@ -206,11 +209,53 @@ probe_map() {
   fi
 }
 
+# Dump the parameters the running node actually holds and compare them with the
+# config file (writes params_dump.yaml and effective_params.json).
+dump_params() {
+  local raw="${OUTPUT_DIR}/params_dump.yaml" i
+  for i in 1 2 3; do
+    if [ "${STACK}" = "ros1" ]; then
+      timeout 15 rosparam get "${SLAM_NODE}" > "${raw}" 2>/dev/null
+    else
+      timeout 30 ros2 param dump "${SLAM_NODE}" > "${raw}" 2>/dev/null
+    fi
+    [ -s "${raw}" ] && break
+    sleep 2
+  done
+  python3 experiments/dump_params.py "${STACK}" "${raw}" "config/${ALGO}.yaml" \
+    "${OUTPUT_DIR}/effective_params.json"
+}
+
+# Save the occupancy grid (map.pgm + map.yaml) and, for slam_toolbox, the serialized
+# pose graph (pose_graph.posegraph + pose_graph.data) into the run directory.
+save_map() {
+  local abs="${REPO_ROOT}/${OUTPUT_DIR}"
+  if [ "${STACK}" = "ros1" ]; then
+    timeout 30 rosrun map_server map_saver -f "${abs}/map" >/dev/null 2>&1
+    if [ "${ALGO}" = "slam_toolbox" ]; then
+      timeout 30 rosservice call /slam_toolbox/serialize_map "filename: '${abs}/pose_graph'" >/dev/null 2>&1
+    fi
+  else
+    timeout 60 ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \
+      "{name: {data: '${abs}/map'}}" >/dev/null 2>&1
+    timeout 60 ros2 service call /slam_toolbox/serialize_map slam_toolbox/srv/SerializePoseGraph \
+      "{filename: '${abs}/pose_graph'}" >/dev/null 2>&1
+  fi
+  [ -s "${abs}/map.pgm" ] && [ -s "${abs}/map.yaml" ]
+}
+
+csv_rows() {
+  [ -f "$1" ] || { echo 0; return; }
+  echo $(( $(wc -l < "$1") - 1 ))
+}
+
 # ---------------------------------------------------------------- main
 run_experiment() {
-  local base_id i=1 bag_rc="" map_received=false started_at finished_at status=0
+  local base_id i=1 bag_rc="" map_received=false map_saved=false pose_graph_saved=false
+  local params_ok=false metrics_samples=0 started_at finished_at status=0
 
   source_ros
+  ensure_psutil || die "psutil is required for CPU/memory logging (apt-get install python3-psutil)."
 
   BAG_ID=""; BAG_PATH=""
   [ "${MODE}" = "replay" ] && resolve_bag "${BAG}"
@@ -248,16 +293,18 @@ run_experiment() {
   wait_for_node || die "SLAM node ${SLAM_NODE} did not start within ${STARTUP_WAIT}s."
   log "SLAM node ${SLAM_NODE} is up."
 
-  if ensure_psutil; then
-    start_group python3 metrics/cpu_memory_logger.py \
-      --output "${OUTPUT_DIR}/cpu_mem.csv" \
-      --experiment_id "${EXPERIMENT_ID}" \
-      --ros_version "${ROS_LABEL}"
-    METRICS_PID="${LAST_GROUP}"
+  if dump_params; then
+    params_ok=true
+    log "Node parameters match config/${ALGO}.yaml."
   else
-    METRICS_PID=""
-    log "WARNING: psutil unavailable; skipping CPU/memory logging."
+    log "WARNING: node parameters do not match config/${ALGO}.yaml (see effective_params.json)."
   fi
+
+  start_group python3 metrics/cpu_memory_logger.py \
+    --output "${OUTPUT_DIR}/cpu_mem.csv" \
+    --experiment_id "${EXPERIMENT_ID}" \
+    --ros_version "${ROS_LABEL}"
+  METRICS_PID="${LAST_GROUP}"
 
   if [ "${MODE}" = "replay" ]; then
     if [ "${STACK}" = "ros1" ]; then
@@ -273,23 +320,43 @@ run_experiment() {
     sleep "${DURATION}"
   fi
 
+  if ! group_alive "${METRICS_PID}"; then
+    log "ERROR: the CPU/memory logger exited early."; status=1
+  fi
+  stop_group "${METRICS_PID}"
+  metrics_samples="$(csv_rows "${OUTPUT_DIR}/cpu_mem.csv")"
+  if [ "${metrics_samples}" -lt 1 ]; then
+    log "ERROR: cpu_mem.csv has no samples."; status=1
+  fi
+
   if probe_map; then
     map_received=true
     log "/map received."
+    if save_map; then
+      map_saved=true
+      log "Map saved to ${OUTPUT_DIR}/map.pgm"
+      if python3 -c "import matplotlib" 2>/dev/null; then
+        python3 plots/plot_maps.py "${OUTPUT_DIR}/map.pgm" --out "${OUTPUT_DIR}/map.png" >/dev/null 2>&1 || true
+      fi
+    else
+      log "WARNING: map could not be saved."
+    fi
+    [ -s "${OUTPUT_DIR}/pose_graph.posegraph" ] && pose_graph_saved=true
   else
     log "WARNING: no /map message received."
   fi
 
   kill -0 "${MAPPING_PID}" 2>/dev/null || { log "ERROR: SLAM process exited during the run."; status=1; }
-
-  [ -n "${METRICS_PID}" ] && stop_group "${METRICS_PID}"
   finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
   if [ "${MODE}" = "replay" ] && [ "${bag_rc}" != "0" ]; then
     log "ERROR: bag playback failed."; status=1
   fi
-  if [ "${REQUIRE_MAP}" = "1" ] && [ "${map_received}" != "true" ]; then
-    log "ERROR: REQUIRE_MAP=1 but no map was produced."; status=1
+  if [ "${REQUIRE_MAP}" = "1" ] && { [ "${map_received}" != "true" ] || [ "${map_saved}" != "true" ]; }; then
+    log "ERROR: REQUIRE_MAP=1 but no map was produced and saved."; status=1
+  fi
+  if [ "${REQUIRE_PARAMS}" = "1" ] && [ "${params_ok}" != "true" ]; then
+    log "ERROR: REQUIRE_PARAMS=1 but the node parameters differ from config/${ALGO}.yaml."; status=1
   fi
 
   python3 experiments/write_meta.py "${OUTPUT_DIR}/run_meta.json" \
@@ -297,7 +364,9 @@ run_experiment() {
     algo="${ALGO}" mode="${MODE}" bag_id="${BAG_ID}" bag_path="${BAG_PATH}" \
     rate="${RATE}" duration_s="$([ "${MODE}" = "live" ] && echo "${DURATION}")" \
     settle_s="${SETTLE}" use_sim_time="${USE_SIM_TIME}" run_tag="${RUN_TAG}" \
-    bag_exit_code="${bag_rc}" map_received="${map_received}" exit_status="${status}" \
+    bag_exit_code="${bag_rc}" map_received="${map_received}" map_saved="${map_saved}" \
+    pose_graph_saved="${pose_graph_saved}" params_ok="${params_ok}" \
+    metrics_samples="${metrics_samples}" exit_status="${status}" \
     started_at="${started_at}" finished_at="${finished_at}" \
     params_file="${ALGO}.yaml" rmw_implementation="${RMW_IMPLEMENTATION:-}" \
     || log "WARNING: could not write run_meta.json"

@@ -14,6 +14,11 @@ Usage:
     compare_groups.py --tag matrix_20261030
     compare_groups.py --algo slam_toolbox --mode replay --bag corridor_01
     compare_groups.py --tag T --json report.json --csv runs.csv --markdown report.md
+    compare_groups.py --tag T --require-identical-params
+
+Parameter equivalence: each run's effective_params.json (what the SLAM node actually
+held) is compared across all selected runs. Differences are listed in the report, and
+--require-identical-params turns them into a failure.
 """
 
 import argparse
@@ -106,6 +111,43 @@ def select(runs, args):
     return out
 
 
+def _norm(v):
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return round(float(v), 12)
+    return str(v)
+
+
+def param_check(groups):
+    """Compare effective_params.json across runs. Returns a summary dict."""
+    values = {}
+    missing = {s: set() for s in STACKS}
+    without = []
+    for stack in STACKS:
+        for r in groups[stack]:
+            path = os.path.join(r["_dir"], "effective_params.json")
+            try:
+                with open(path) as f:
+                    eff = json.load(f)
+            except (OSError, ValueError):
+                without.append(r["_dir"])
+                continue
+            missing[stack].update(eff.get("missing", []))
+            for key, v in eff.get("effective", {}).items():
+                values.setdefault(key, {}).setdefault(_norm(v), []).append(f"{stack}:{os.path.basename(r['_dir'])}")
+    differing = {k: {str(v): runs for v, runs in vals.items()} for k, vals in values.items() if len(vals) > 1}
+    checked = sum(len(groups[s]) for s in STACKS) - len(without)
+    return {
+        "runs_checked": checked,
+        "runs_without_dump": without,
+        "keys_compared": len(values),
+        "differing": differing,
+        "missing": {s: sorted(missing[s]) for s in STACKS},
+        "identical": checked > 0 and not differing and not without,
+    }
+
+
 def fmt(v, digits=2):
     if v is None or v != v:
         return "n/a"
@@ -118,7 +160,7 @@ def fmt_p(p):
     return "<0.001" if p < 0.001 else f"{p:.3f}"
 
 
-def build_report(groups, condition, trim_start):
+def build_report(groups, condition, trim_start, params):
     rows = []
     for key, label, unit in METRICS:
         a = [r["metrics"][key] for r in groups["ros1"]]
@@ -141,6 +183,7 @@ def build_report(groups, condition, trim_start):
         "trim_start_s": trim_start,
         "runs": {s: [r["_dir"] for r in groups[s]] for s in STACKS},
         "metrics": rows,
+        "parameters": params,
     }
 
 
@@ -173,6 +216,22 @@ def to_markdown(report):
         "Per-run metrics are the run's mean/p95/peak/growth; the table summarises them across runs. "
         "Cliff's δ > 0 means ROS2 is higher.",
     ]
+    p = report["parameters"]
+    lines.append("")
+    if p["identical"]:
+        lines.append(f"Parameters: identical across all {p['runs_checked']} runs "
+                     f"({p['keys_compared']} keys, from each node's effective_params.json).")
+    else:
+        lines.append("> **Parameters are not verified identical.**")
+        if p["runs_without_dump"]:
+            lines.append(f"> {len(p['runs_without_dump'])} run(s) have no effective_params.json.")
+        for key, vals in sorted(p["differing"].items()):
+            lines.append(f"> `{key}` differs: " + "; ".join(f"{v} ({len(r)} run(s))" for v, r in vals.items()))
+    for stack in STACKS:
+        if p["missing"][stack]:
+            lines.append("")
+            lines.append(f"Not held by the {stack.upper()} node (ignored by that version): "
+                         + ", ".join(f"`{k}`" for k in p["missing"][stack]))
     if min(n1, n2) < 5:
         lines.append("")
         lines.append(
@@ -210,6 +269,8 @@ def main():
     ap.add_argument("--trim-start", type=float, default=0.0,
                     help="ignore samples in the first N seconds of each run")
     ap.add_argument("--include-failed", action="store_true", help="keep runs with exit_status != 0")
+    ap.add_argument("--require-identical-params", action="store_true",
+                    help="exit 1 unless every run holds identical effective parameters")
     ap.add_argument("--json", help="write the full report as JSON")
     ap.add_argument("--csv", help="write per-run metrics as CSV")
     ap.add_argument("--markdown", help="write the markdown table to a file")
@@ -245,7 +306,8 @@ def main():
     first = groups["ros1"][0]
     condition = {k: first.get(k) for k in COMPAT_KEYS}
     condition["run_tag"] = args.tag
-    report = build_report(groups, condition, args.trim_start)
+    params = param_check(groups)
+    report = build_report(groups, condition, args.trim_start, params)
     md = to_markdown(report)
     print(md, end="")
 
@@ -258,6 +320,10 @@ def main():
             f.write("\n")
     if args.csv:
         write_runs_csv(args.csv, groups)
+
+    if args.require_identical_params and not params["identical"]:
+        print("ERROR: effective parameters are not identical across runs.", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ Sensor data is recorded once on a real mobile robot in a controlled indoor envir
 | Path | Purpose |
 |---|---|
 | `config/` | Shared SLAM parameters (`slam_toolbox.yaml`, loaded unchanged by both stacks), ROS1-only `gmapping.yaml`, ROS2 replay QoS overrides. |
+| `docs/` | [Parameter mapping](docs/parameter_mapping.md) between GMapping, slam_toolbox ROS1 and slam_toolbox ROS2 (generated, checked in CI). |
 | `experiments/` | Run scripts (`run_ros1.sh`, `run_ros2.sh`, shared `common.sh`), batch runner `run_matrix.sh`, bag tools (`record_bag.sh`, `convert_bag.sh`, `inspect_bag.py`, `make_synthetic_bag.py`), protocol notes. |
 | `ros1/` | ROS1 Noetic launch file (`slam_toolbox` or GMapping). |
 | `ros2/` | ROS2 Humble launch file (`slam_toolbox`). |
@@ -49,7 +50,7 @@ Sensor data is recorded once on a real mobile robot in a controlled indoor envir
 | `metrics/` | CPU/memory logger, single-run summary, two-run comparison, repeated-run statistics (latency logger is a placeholder). |
 | `tests/` | Unit tests for the statistics helpers. |
 | `plots/` | Scripts that render CPU, memory and occupancy-grid map plots as PNGs. |
-| `results/raw/` | Per-run output (`cpu_mem.csv`, `run_meta.json`, archived parameters), one folder per run ID. |
+| `results/raw/` | Per-run output (`cpu_mem.csv`, `run_meta.json`, saved map, effective parameters), one folder per run ID. |
 | `results/reports/` | Batch reports written by `run_matrix.sh`. |
 | `docker/` | Dockerfiles for ROS1 Noetic and ROS2 Humble environments. |
 | `.github/workflows/` | CI: linting, analysis smoke test, ROS1/ROS2 container runs, Docker builds. |
@@ -127,11 +128,20 @@ Without `BAG`, the scripts run live against `/scan` for `DURATION` seconds (defa
 
 - Creates `results/raw/<ros1|ros2>/<run_id>/`
 - Starts SLAM (`ALGO=slam_toolbox` by default; `ALGO=gmapping` is available on ROS1 as a baseline) and waits until the node is up
+- Dumps the parameters the node actually holds and fails if any differs from the config (`effective_params.json`)
 - Replays the bag with `--clock` and `use_sim_time` (ROS2 uses `config/qos_overrides.yaml`), or runs for `DURATION` live
-- Logs system-wide CPU and memory to `cpu_mem.csv`
-- Checks that a `/map` was published (required in replay mode)
-- Archives the parameter file and writes `run_meta.json` (stack, algorithm, mode, bag, rate, tag, git commit, host)
+- Logs system-wide CPU and memory to `cpu_mem.csv` and fails if the logger produced no samples
+- Saves the map before shutdown: `map.pgm` + `map.yaml` (ROS1 `map_saver`, ROS2 `/slam_toolbox/save_map`), the slam_toolbox pose graph (`/slam_toolbox/serialize_map` → `pose_graph.posegraph` + `.data`), and a rendered `map.png`
+- Archives the parameter file and writes `run_meta.json` (stack, algorithm, mode, bag, rate, tag, map/params/metrics status, git commit, host)
 - Stops every launched process group on exit
+
+In replay mode a run fails unless a map was produced and saved (`REQUIRE_MAP=0` to relax); in both modes it fails on a parameter mismatch (`REQUIRE_PARAMS=0` to relax).
+
+Check the parameter files and the [mapping table](docs/parameter_mapping.md):
+
+```
+python3 experiments/check_params.py --check-doc
+```
 
 `BAG` accepts either form (`x.bag` or `x/`); the scripts pick the one matching their stack. Convert manually with `./experiments/convert_bag.sh data/bags/x.bag`.
 
@@ -164,7 +174,7 @@ python3 plots/plot_memory.py --ros ros2
 python3 plots/plot_maps.py path/to/map.pgm
 ```
 
-Plots are written as PNGs next to the source CSV.
+Plots are written as PNGs next to the source CSV. Replay runs also save `map.png` in the run folder.
 
 ## Reproducibility
 
@@ -179,10 +189,9 @@ This study focuses on system-level behavior and qualitative mapping outcomes. It
 Known limitations of the current pipeline:
 
 - The CPU/memory logger records system-wide usage (including the bag player), not per-process usage of the SLAM node.
-- Maps are not yet saved automatically at the end of a run.
 - GMapping is ROS1-only; the comparison across stacks uses `slam_toolbox`.
 - Message latency logging (`metrics/ros_latency_logger.py`) is a placeholder.
-- `results/raw/` contains only short pipeline test runs, not experimental data.
+- No experimental results are committed yet.
 
 ## Status
 

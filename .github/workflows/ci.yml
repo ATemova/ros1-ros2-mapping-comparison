@@ -40,6 +40,8 @@ jobs:
           PY
       - name: unit tests
         run: python -m unittest discover -s tests -v
+      - name: parameter files and mapping table
+        run: python experiments/check_params.py --check-doc
 
   pipeline-smoke:
     name: Analysis pipeline (no ROS)
@@ -106,7 +108,7 @@ jobs:
           name: synthetic-bag
           path: data/bags/
       - name: install dependencies
-        run: apt-get install -y python3-psutil ros-noetic-slam-toolbox ros-noetic-slam-gmapping
+        run: apt-get install -y python3-psutil python3-matplotlib ros-noetic-slam-toolbox ros-noetic-slam-gmapping ros-noetic-map-server
       - name: live run (no sensor, short)
         run: |
           chmod +x experiments/*.sh
@@ -125,9 +127,11 @@ jobs:
           python3 - <<'PY'
           import glob, json
           metas = [json.load(open(p)) for p in glob.glob("results/raw/ros1/*/run_meta.json")]
+          assert all(m["params_ok"] and m["metrics_samples"] > 0 for m in metas), metas
           replays = [m for m in metas if m["mode"] == "replay"]
           assert len(replays) == 2, replays
-          assert all(m["map_received"] and m["exit_status"] == 0 for m in replays), replays
+          assert all(m["map_saved"] and m["exit_status"] == 0 for m in replays), replays
+          assert any(m["algo"] == "slam_toolbox" and m["pose_graph_saved"] for m in replays), replays
           print("ok", [(m["algo"], m["experiment_id"]) for m in replays])
           PY
       - uses: actions/upload-artifact@v4
@@ -149,7 +153,7 @@ jobs:
           name: synthetic-bag
           path: data/bags/
       - name: install dependencies
-        run: apt-get install -y python3-psutil ros-humble-slam-toolbox
+        run: apt-get install -y python3-psutil python3-matplotlib ros-humble-slam-toolbox ros-humble-nav2-map-server
       - name: live run (no sensor, short)
         run: |
           chmod +x experiments/*.sh
@@ -166,10 +170,12 @@ jobs:
           python3 - <<'PY'
           import glob, json
           metas = [json.load(open(p)) for p in glob.glob("results/raw/ros2/*/run_meta.json")]
+          assert all(m["params_ok"] and m["metrics_samples"] > 0 for m in metas), metas
           replays = [m for m in metas if m["mode"] == "replay"]
           assert len(replays) == 1, replays
-          assert replays[0]["map_received"] and replays[0]["exit_status"] == 0, replays
-          print("ok", replays[0]["experiment_id"])
+          r = replays[0]
+          assert r["map_saved"] and r["pose_graph_saved"] and r["exit_status"] == 0, r
+          print("ok", r["experiment_id"])
           PY
       - uses: actions/upload-artifact@v4
         with:
@@ -195,8 +201,12 @@ jobs:
           python-version: "3.11"
       - name: compare_groups
         run: |
-          python metrics/compare_groups.py --tag ci --markdown report.md
+          python metrics/compare_groups.py --tag ci --markdown report.md --require-identical-params
           cat report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: replay-maps
+          path: results/raw/*/*/map.*
 
   docker-build:
     name: Build Docker images

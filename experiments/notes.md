@@ -52,7 +52,29 @@ since trajectory and environment cannot be repeated exactly.
   Cliff's delta (`metrics/compare_groups.py`).
 - Mapping quality is evaluated qualitatively for now (occupancy grid images).
 
+## Map saving
+
+At the end of every run in which a `/map` was received, before anything is stopped:
+
+| | Occupancy grid | Pose graph (slam_toolbox) |
+|---|---|---|
+| ROS1 | `rosrun map_server map_saver -f <run>/map` | `rosservice call /slam_toolbox/serialize_map` |
+| ROS2 | `ros2 service call /slam_toolbox/save_map` (uses `nav2_map_server`) | `ros2 service call /slam_toolbox/serialize_map` |
+
+Output per run: `map.pgm`, `map.yaml`, `map.png`, `pose_graph.posegraph`, `pose_graph.data`.
+CPU/memory logging stops before saving, so map export is not counted in the metrics.
+
+## Run validity
+
+A run fails (non-zero exit, `exit_status` in `run_meta.json`) when:
+
+- the SLAM package is missing or the node does not come up (no fallback)
+- the node holds a parameter value that differs from the config file
+- `psutil` is unavailable, the logger exits early, or `cpu_mem.csv` has no samples
+- replay mode: the bag player fails, or no map is received and saved
+
+`compare_groups.py` ignores failed runs by default.
+
 ## Known gaps (next iterations)
 
 - CPU/memory is system-wide, and includes the bag player. Per-process metrics are planned.
-- Maps are not saved automatically yet.
