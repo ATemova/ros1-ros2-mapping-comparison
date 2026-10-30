@@ -62,7 +62,12 @@ Wall clock = receive time at the logger; ROS clock = simulated time in replay.
 | `map_period_s` | mean interval between `/map` messages (configured: `map_update_interval`) | ROS |
 | `map_period_jitter_ms` | standard deviation of that interval | ROS |
 | `map_age_ms` | `/map` receive time − its header stamp | ROS |
-| `time_to_first_map_s` | first `/map` − first scan | ROS |
+| `map_period_wall_s`, `map_period_wall_jitter_ms` | the same on the wall clock; slam_toolbox on ROS2 runs its map timer on wall time, so with `RATE` ≠ 1 it differs from the ROS-clock period | wall |
+| `time_to_first_map_s` | first `/map` (ROS-clock receive time) − first scan's header stamp | ROS |
+
+Map and TF events count only while input is flowing (until 1 s after the last scan), so
+maps published after the bag ended do not inflate latency or jitter. Events received before
+the first `/clock` message (ROS time 0) are excluded from ROS-clock metrics.
 
 The logger subscribes with the same QoS as SLAM (ROS2: sensor-data QoS for scans,
 reliable + transient-local for the map), so the drops it sees are those a SLAM-like

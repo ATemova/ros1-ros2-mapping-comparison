@@ -73,6 +73,8 @@ EXTRA_METRICS = [
     ("tf_update_latency_p95_ms", "Scan→TF correction latency (p95)", "ms"),
     ("map_period_s", "Map update period", "s"),
     ("map_period_jitter_ms", "Map update jitter", "ms"),
+    ("map_period_wall_s", "Map update period (wall clock)", "s"),
+    ("map_period_wall_jitter_ms", "Map update jitter (wall clock)", "ms"),
     ("time_to_first_map_s", "Time to first map", "s"),
     ("ate_rmse_m", "ATE RMSE", "m"),
     ("rpe_trans_rmse_m", "RPE translation RMSE", "m"),

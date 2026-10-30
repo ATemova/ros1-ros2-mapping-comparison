@@ -48,6 +48,12 @@ results/**/*.zip
 results/**/*.tar.gz
 results/raw/*/ci_smoke/
 
+# Run outputs stay local; publish final results with `make dataset` (docs/dataset.md),
+# or add a specific run deliberately with `git add -f`.
+results/raw/
+results/reports/
+results/report.md
+
 
 # Temporary metric test files
 metrics/test_ros1.csv

@@ -3,11 +3,19 @@
 
 Standard library only. Definitions (see docs/metrics.md):
 
+Map and TF events are only used while input is flowing (up to ACTIVE_TAIL_S after the
+last scan): a map published after the bag ended says nothing about latency. Events whose
+ROS-clock receive time is 0 (received before the first /clock message) are left out of
+ROS-clock metrics.
+
   scan_drop_rate           1 - scans received / scans published (replay: bag count)
   scan_gap_drop_rate       missing scans inferred from header-stamp gaps / expected
-  time_to_first_map_s      first /map minus first scan, ROS clock
+  time_to_first_map_s      first /map (ROS-clock receive) minus the first scan's header stamp
   map_period_mean_s        mean interval between /map messages, ROS clock
   map_period_jitter_ms     standard deviation of that interval
+  map_period_wall_s / map_period_wall_jitter_ms   the same on the wall clock (slam_toolbox
+                           on ROS2 runs its map timer on wall time, so with RATE != 1 the
+                           two differ)
   scan_to_map_latency_ms   /map receive time minus receive time of the newest scan
                            before it, wall clock (how stale the map is vs. the input)
   map_age_ms               /map receive time minus its header stamp, ROS clock
@@ -29,6 +37,7 @@ from statistics import mean, median, pstdev
 from stats_utils import percentile
 
 TF_CHANGE_EPS = 1e-6
+ACTIVE_TAIL_S = 1.0
 
 
 def load_events(path):
@@ -76,10 +85,15 @@ def _latency_after_scan(event_walls, scan_walls):
 
 def analyze(events, expected_scans=None, map_frame="map", odom_frame="odom"):
     scans = [e for e in events if e["event"] == "scan"]
-    maps = [e for e in events if e["event"] == "map"]
-    map_odom = [e for e in events if e["event"] == "tf" and e["parent"] == map_frame and e["child"] == odom_frame]
+    maps_all = [e for e in events if e["event"] == "map"]
+    map_odom_all = [e for e in events if e["event"] == "tf" and e["parent"] == map_frame and e["child"] == odom_frame]
 
-    res = {"scans_received": len(scans), "maps_received": len(maps), "map_odom_messages": len(map_odom)}
+    active_end = scans[-1]["wall"] + ACTIVE_TAIL_S if scans else float("inf")
+    maps = [m for m in maps_all if m["wall"] <= active_end]
+    map_odom = [e for e in map_odom_all if e["wall"] <= active_end]
+
+    res = {"scans_received": len(scans), "maps_received": len(maps_all), "maps_during_input": len(maps),
+           "map_odom_messages": len(map_odom_all)}
 
     # ---- scans
     scan_walls = [e["wall"] for e in scans]
@@ -98,25 +112,30 @@ def analyze(events, expected_scans=None, map_frame="map", odom_frame="odom"):
         res.update(_stats([b - a for a, b in zip(scan_walls, scan_walls[1:])], 1000.0, "scan_interarrival_ms_"))
 
     # ---- maps
-    if maps and scans:
-        res["time_to_first_map_s"] = maps[0]["ros"] - scans[0]["ros"]
-        res["time_to_first_map_wall_s"] = maps[0]["wall"] - scans[0]["wall"]
-    if len(maps) >= 2:
-        periods = [b["ros"] - a["ros"] for a, b in zip(maps, maps[1:])]
+    if maps_all and scans:
+        first_ros = next((m["ros"] for m in maps_all if m["ros"] > 0), None)
+        if first_ros is not None:
+            res["time_to_first_map_s"] = first_ros - scans[0]["stamp"]
+        res["time_to_first_map_wall_s"] = maps_all[0]["wall"] - scans[0]["wall"]
+    ros_maps = [m for m in maps if m["ros"] > 0]
+    if len(ros_maps) >= 2:
+        periods = [b["ros"] - a["ros"] for a, b in zip(ros_maps, ros_maps[1:])]
         res["map_period_mean_s"] = mean(periods)
         res["map_period_jitter_ms"] = (pstdev(periods) if len(periods) > 1 else 0.0) * 1000.0
         res["map_period_p95_s"] = percentile(periods, 95)
+    if len(maps) >= 2:
         wall_periods = [b["wall"] - a["wall"] for a, b in zip(maps, maps[1:])]
         res["map_period_wall_mean_s"] = mean(wall_periods)
         res["map_period_wall_jitter_ms"] = (pstdev(wall_periods) if len(wall_periods) > 1 else 0.0) * 1000.0
     res.update(_stats(_latency_after_scan([m["wall"] for m in maps], scan_walls), 1000.0, "scan_to_map_latency_ms_"))
-    res.update(_stats([m["ros"] - m["stamp"] for m in maps], 1000.0, "map_age_ms_"))
+    res.update(_stats([m["ros"] - m["stamp"] for m in ros_maps], 1000.0, "map_age_ms_"))
 
     # ---- map->odom
-    if len(map_odom) >= 2:
-        span = map_odom[-1]["ros"] - map_odom[0]["ros"]
+    map_odom_ros = [e for e in map_odom_all if e["ros"] > 0]
+    if len(map_odom_ros) >= 2:
+        span = map_odom_ros[-1]["ros"] - map_odom_ros[0]["ros"]
         if span > 0:
-            res["map_odom_rate_hz"] = (len(map_odom) - 1) / span
+            res["map_odom_rate_hz"] = (len(map_odom_ros) - 1) / span
     changes = []
     prev = None
     for e in map_odom:

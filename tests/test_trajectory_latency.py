@@ -90,11 +90,27 @@ class LatencyTest(unittest.TestCase):
         self.assertEqual(r["scan_gap_missing"], 2)
         self.assertAlmostEqual(r["map_period_mean_s"], 3.0, places=6)
         self.assertAlmostEqual(r["map_period_jitter_ms"], 0.0, places=6)
-        self.assertAlmostEqual(r["time_to_first_map_s"], 13.05 - 10.002, places=6)
+        self.assertAlmostEqual(r["time_to_first_map_s"], 13.05 - 10.0, places=6)
         self.assertAlmostEqual(r["scan_to_map_latency_ms_median"], 48.0, places=3)
         self.assertAlmostEqual(r["map_age_ms_median"], 50.0, places=3)
         self.assertEqual(r["map_odom_corrections"], 1)
         self.assertAlmostEqual(r["tf_update_latency_ms_median"], 28.0, places=3)
+
+
+    def test_events_before_clock_and_after_input(self):
+        ev = self.events()
+        for e in ev:
+            if e["event"] == "scan" and e["stamp"] < 10.25:
+                e["ros"] = 0.0  # received before the first /clock message
+        # a map published 5 s after the last scan (bag ended) must not count as latency
+        ev.append({"event": "map", "wall": 1015.0, "ros": 25.0, "stamp": 25.0})
+        r = analyze(sorted(ev, key=lambda e: e["wall"]), expected_scans=100)
+        self.assertAlmostEqual(r["time_to_first_map_s"], 3.05, places=6)
+        self.assertEqual(r["maps_received"], 4)
+        self.assertEqual(r["maps_during_input"], 3)
+        self.assertAlmostEqual(r["scan_to_map_latency_ms_max"], 48.0, places=3)
+        self.assertAlmostEqual(r["map_period_mean_s"], 3.0, places=6)
+        self.assertAlmostEqual(r["map_period_wall_mean_s"], 3.0, places=6)
 
 
 if __name__ == "__main__":

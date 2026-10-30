@@ -115,6 +115,8 @@ jobs:
           path: data/bags/
       - name: install dependencies
         run: apt-get install -y python3-psutil python3-numpy python3-yaml python3-matplotlib ros-noetic-slam-toolbox ros-noetic-slam-gmapping ros-noetic-map-server
+      - name: start from an empty results folder
+        run: rm -rf results/raw results/reports results/report.md
       - name: live run (no sensor, short)
         run: |
           chmod +x experiments/*.sh
@@ -183,6 +185,8 @@ jobs:
           apt-get install -y python3-psutil python3-numpy python3-yaml python3-matplotlib \
             ros-$D-slam-toolbox ros-$D-nav2-map-server ros-$D-rmw-fastrtps-cpp ros-$D-rmw-cyclonedds-cpp
           if [ "${{ matrix.rmw }}" = zenoh ]; then apt-get install -y ros-$D-rmw-zenoh-cpp; fi
+      - name: start from an empty results folder
+        run: rm -rf results/raw results/reports results/report.md
       - name: live run (no sensor, short)
         if: matrix.distro == 'humble' && matrix.rmw == 'fastrtps'
         run: |
@@ -278,6 +282,8 @@ jobs:
       COOLDOWN: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: start from an empty results folder
+        run: rm -rf results/raw results/reports results/report.md
       - name: build images
         run: make images DISTRO=humble
       - name: bag tooling in the ROS2 image

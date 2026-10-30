@@ -323,6 +323,14 @@ save_map() {
   else
     timeout 60 ros2 service call /slam_toolbox/save_map slam_toolbox/srv/SaveMap \
       "{name: {data: '${abs}/map'}}" >/dev/null 2>&1
+    # slam_toolbox's save_map runs nav2's map_saver_cli with its 2 s default timeout, which
+    # can expire before discovery completes (seen with Fast DDS on Jazzy); retry directly
+    # with a longer timeout and a transient-local subscription to the latched map
+    if [ ! -s "${abs}/map.pgm" ]; then
+      log "save_map service did not write the map; retrying with map_saver_cli."
+      timeout 60 ros2 run nav2_map_server map_saver_cli -f "${abs}/map" --ros-args \
+        -p save_map_timeout:=10.0 -p map_subscribe_transient_local:=true >/dev/null 2>&1
+    fi
     timeout 60 ros2 service call /slam_toolbox/serialize_map slam_toolbox/srv/SerializePoseGraph \
       "{filename: '${abs}/pose_graph'}" >/dev/null 2>&1
   fi

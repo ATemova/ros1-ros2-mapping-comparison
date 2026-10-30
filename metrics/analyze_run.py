@@ -172,6 +172,8 @@ def summarize(m):
         ("tf_update_latency_p95_ms", "tf_update_latency_ms_p95"),
         ("map_period_s", "map_period_mean_s"),
         ("map_period_jitter_ms", "map_period_jitter_ms"),
+        ("map_period_wall_s", "map_period_wall_mean_s"),
+        ("map_period_wall_jitter_ms", "map_period_wall_jitter_ms"),
         ("map_age_ms", "map_age_ms_median"),
         ("time_to_first_map_s", "time_to_first_map_s"),
     ):

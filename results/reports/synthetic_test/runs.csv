@@ -1,7 +1,0 @@
-stack,run_dir,experiment_id,algo,mode,bag_id,rate,run_tag,samples,cpu_mean,cpu_p95,mem_mean_mb,mem_peak_mb,mem_growth_mb
-ros1,results/raw/ros1/20261030_151403,20261030_151403,slam_toolbox,replay,synthetic,2.0,synthetic_test,27,0.9222,1.87,688.7563,693.53,-26.48
-ros1,results/raw/ros1/20261030_151548,20261030_151548,slam_toolbox,replay,synthetic,2.0,synthetic_test,27,0.8444,1.57,666.0974,691.2,18.95
-ros1,results/raw/ros1/20261030_151626,20261030_151626,slam_toolbox,replay,synthetic,2.0,synthetic_test,27,0.8667,1.97,675.383,682.01,-27.08
-ros2,results/raw/ros2/20261030_151440,20261030_151440,slam_toolbox,replay,synthetic,2.0,synthetic_test,27,1.6,7.09,595.1263,628.74,-23.57
-ros2,results/raw/ros2/20261030_151514,20261030_151514,slam_toolbox,replay,synthetic,2.0,synthetic_test,27,1.6741,6.91,596.0826,639.54,16.17
-ros2,results/raw/ros2/20261030_151703,20261030_151703,slam_toolbox,replay,synthetic,2.0,synthetic_test,27,1.8296,7.07,608.487,638.76,7.7
