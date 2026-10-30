@@ -1,14 +1,22 @@
 <launch>
-
+  <!-- algo: slam_toolbox (primary, same parameters as ROS2) or gmapping (ROS1-only baseline) -->
+  <arg name="algo" default="slam_toolbox" />
+  <arg name="use_sim_time" default="false" />
   <arg name="scan_topic" default="/scan" />
+  <arg name="config_dir" default="$(dirname)/../../config" />
 
-  <node pkg="gmapping"
-        type="slam_gmapping"
-        name="slam_gmapping"
-        output="screen">
+  <param name="/use_sim_time" value="$(arg use_sim_time)" />
 
-    <remap from="scan" to="$(arg scan_topic)" />
+  <group if="$(eval algo == 'slam_toolbox')">
+    <node pkg="slam_toolbox" type="sync_slam_toolbox_node" name="slam_toolbox" output="screen">
+      <rosparam command="load" file="$(arg config_dir)/slam_toolbox.yaml" />
+    </node>
+  </group>
 
-  </node>
-
+  <group if="$(eval algo == 'gmapping')">
+    <node pkg="gmapping" type="slam_gmapping" name="slam_gmapping" output="screen">
+      <rosparam command="load" file="$(arg config_dir)/gmapping.yaml" />
+      <remap from="scan" to="$(arg scan_topic)" />
+    </node>
+  </group>
 </launch>

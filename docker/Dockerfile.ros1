@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-pandas \
       python3-matplotlib \
       ros-noetic-map-server \
+      ros-noetic-slam-toolbox \
       ros-noetic-slam-gmapping \
  && rm -rf /var/lib/apt/lists/*
 

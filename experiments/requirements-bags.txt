@@ -1,0 +1,4 @@
+# Bag tooling (inspect_bag.py, convert_bag.sh, make_synthetic_bag.py). Python >= 3.10.
+# Pinned: convert_bag.sh relies on this version's --dst-version 8 output for Humble.
+rosbags==0.11.9
+numpy

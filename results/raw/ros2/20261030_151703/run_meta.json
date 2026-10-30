@@ -1,0 +1,35 @@
+{
+  "algo": "slam_toolbox",
+  "bag_exit_code": 0,
+  "bag_id": "synthetic",
+  "bag_path": "data/bags/synthetic",
+  "duration_s": null,
+  "exit_status": 0,
+  "experiment_id": "20261030_151703",
+  "finished_at": "2026-10-30T15:17:31Z",
+  "git": {
+    "branch": "main",
+    "commit": "8621d1abf297333ca8735e1e0ff5244c962af80c"
+  },
+  "host": {
+    "cpu_count": 10,
+    "cpu_model": "aarch64",
+    "hostname": "adde14943be8",
+    "in_container": true,
+    "kernel": "6.12.76-linuxkit",
+    "mem_total_mb": 7936.0,
+    "python": "3.10.12"
+  },
+  "map_received": true,
+  "mode": "replay",
+  "params_file": "slam_toolbox.yaml",
+  "rate": 2.0,
+  "rmw_implementation": null,
+  "ros_distro": "humble",
+  "run_tag": "synthetic_test",
+  "schema_version": 1,
+  "settle_s": 5,
+  "stack": "ros2",
+  "started_at": "2026-10-30T15:17:03Z",
+  "use_sim_time": true
+}

@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Experimental design: same algorithm and parameters on both stacks, identical recorded input, repeated runs with statistics.
+
+### Added
+
+- Shared `config/slam_toolbox.yaml` loaded unchanged by both stacks: ROS1 via `rosparam load`, ROS2 as a parameter dict.
+- `slam_toolbox` (synchronous) on ROS1 Noetic, selected with `ALGO=slam_toolbox` (new default); GMapping kept as a ROS1-only baseline with real GMapping parameters in `config/gmapping.yaml`.
+- Bag replay mode: `BAG=<bag>` replays recorded input with `--clock` / `use_sim_time`; ROS2 playback uses `config/qos_overrides.yaml`.
+- Bag tools: `experiments/record_bag.sh`, `experiments/convert_bag.sh` (ROS1 ⇄ ROS2 via `rosbags`, Humble-compatible output), `experiments/inspect_bag.py` (rejects bags recorded while SLAM was running), `experiments/make_synthetic_bag.py` (deterministic test bag).
+- `experiments/run_matrix.sh`: repeated, counterbalanced ROS1/ROS2 replay runs in fresh containers, optional resource pinning, batch report in `results/reports/<tag>/`.
+- `run_meta.json` per run (stack, algorithm, mode, bag, rate, tag, map received, exit status, git commit, host).
+- `metrics/compare_groups.py` and `metrics/stats_utils.py`: mean ± 95% CI, Mann-Whitney U (exact / normal with tie correction), Cliff's delta; refuses to mix conditions.
+- Unit tests for the statistics (`tests/test_stats.py`), checked against scipy.
+- CI: synthetic bag job, ROS1/ROS2 replay runs that must produce a map, cross-stack comparison in the job summary, unit tests, bag tooling check in the ROS2 image.
+
+### Changed
+
+- `run_ros1.sh` / `run_ros2.sh` share `experiments/common.sh`. Launched processes run in their own process groups and are stopped together (SIGINT, then SIGTERM, then SIGKILL), so no node outlives a run.
+- Runs fail when the SLAM package is missing or the SLAM node does not come up, instead of continuing without SLAM.
+- ROS2 image ships `rosbags`; ROS1 image ships `ros-noetic-slam-toolbox`.
+
+### Removed
+
+- `ros1/params/mapping.yaml` and `ros2/params/mapping.yaml` (replaced by `config/`). The ROS1 file was never loaded and used non-GMapping parameter names.
+
 ## [0.1.0] - 2026-10-16
 
 First public release of the experimental framework. Experiments and analysis are still in progress; this release contains no final results.

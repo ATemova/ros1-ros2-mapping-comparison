@@ -1,0 +1,33 @@
+# GMapping parameters (ROS1 Noetic only; secondary baseline).
+# Values that have a slam_toolbox counterpart are aligned with config/slam_toolbox.yaml:
+#   delta               <-> resolution
+#   maxUrange           <-> max_laser_range
+#   map_update_interval <-> map_update_interval
+#   linearUpdate        <-> minimum_travel_distance
+#   angularUpdate       <-> minimum_travel_heading
+
+base_frame: base_link
+odom_frame: odom
+map_frame: map
+
+delta: 0.05
+maxUrange: 10.0
+maxRange: 12.0
+map_update_interval: 5.0
+linearUpdate: 0.5
+angularUpdate: 0.5
+temporalUpdate: -1.0
+transform_publish_period: 0.02
+
+particles: 30
+resampleThreshold: 0.5
+minimumScore: 0.0
+srr: 0.1
+srt: 0.2
+str: 0.1
+stt: 0.2
+
+xmin: -20.0
+ymin: -20.0
+xmax: 20.0
+ymax: 20.0

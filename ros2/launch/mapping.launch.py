@@ -1,59 +1,66 @@
 """ROS2 mapping launch.
 
-Resolves the params file relative to this launch file so it works whether the
-file is launched by path (`ros2 launch <path>/mapping.launch.py`) or from an
-installed ament package. If slam_toolbox is not installed, the launch still
-succeeds and simply logs a notice, so the experiment pipeline can be smoke
-tested without SLAM packages present.
+Loads config/slam_toolbox.yaml, the same flat parameter file ROS1 loads, and passes
+it to slam_toolbox as a dict, so both stacks run with identical parameters.
+
+Launch arguments:
+    algo          slam_toolbox (only option on ROS2)
+    use_sim_time  true for bag replay
+    config_dir    directory holding slam_toolbox.yaml (default: <repo>/config)
 """
 
 import os
 
+import yaml
 from launch import LaunchDescription
-from launch.actions import LogInfo
+from launch.actions import DeclareLaunchArgument, OpaqueFunction
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+SUPPORTED_ALGOS = ("slam_toolbox",)
 
-def _params_file():
+
+def _default_config_dir():
     here = os.path.dirname(os.path.abspath(__file__))
-    local = os.path.abspath(os.path.join(here, os.pardir, "params", "mapping.yaml"))
-    if os.path.exists(local):
-        return local
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        return os.path.join(
-            get_package_share_directory("ros2"), "params", "mapping.yaml"
+    return os.path.abspath(os.path.join(here, os.pardir, os.pardir, "config"))
+
+
+def _as_bool(text):
+    return str(text).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _setup(context):
+    algo = LaunchConfiguration("algo").perform(context)
+    use_sim_time = _as_bool(LaunchConfiguration("use_sim_time").perform(context))
+    config_dir = LaunchConfiguration("config_dir").perform(context)
+
+    if algo not in SUPPORTED_ALGOS:
+        raise RuntimeError(
+            f"algo '{algo}' is not supported on ROS2 (supported: {', '.join(SUPPORTED_ALGOS)})"
         )
-    except Exception:
-        return local
 
+    params_path = os.path.join(config_dir, f"{algo}.yaml")
+    with open(params_path) as f:
+        params = yaml.safe_load(f) or {}
+    if not isinstance(params, dict):
+        raise RuntimeError(f"{params_path} must be a flat mapping of parameters")
+    params["use_sim_time"] = use_sim_time
 
-def _package_available(name):
-    try:
-        from ament_index_python.packages import get_package_share_directory
-        get_package_share_directory(name)
-        return True
-    except Exception:
-        return False
-
-
-def generate_launch_description():
-    params_file = _params_file()
-
-    if _package_available("slam_toolbox"):
-        action = Node(
+    return [
+        Node(
             package="slam_toolbox",
             executable="sync_slam_toolbox_node",
             name="slam_toolbox",
-            parameters=[params_file],
+            parameters=[params],
             output="screen",
         )
-    else:
-        action = LogInfo(
-            msg=(
-                "[mapping.launch.py] slam_toolbox not found; launching without a "
-                "SLAM node. Install 'ros-humble-slam-toolbox' for real mapping."
-            )
-        )
+    ]
 
-    return LaunchDescription([action])
+
+def generate_launch_description():
+    return LaunchDescription([
+        DeclareLaunchArgument("algo", default_value="slam_toolbox"),
+        DeclareLaunchArgument("use_sim_time", default_value="false"),
+        DeclareLaunchArgument("config_dir", default_value=_default_config_dir()),
+        OpaqueFunction(function=_setup),
+    ])

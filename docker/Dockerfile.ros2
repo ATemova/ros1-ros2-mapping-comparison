@@ -1,14 +1,20 @@
 # ROS2 Humble environment for the mapping experiments.
+# Also carries the bag tooling (rosbags), so bag conversion, validation and the
+# statistics report run here without host Python dependencies.
 # Build:  docker build -f docker/Dockerfile.ros2 -t ros2-mapping .
 # Run:    docker run -it --rm -v "$PWD":/work -w /work ros2-mapping ./experiments/run_ros2.sh
 FROM ros:humble
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3-pip \
       python3-psutil \
       python3-pandas \
       python3-matplotlib \
       ros-humble-slam-toolbox \
  && rm -rf /var/lib/apt/lists/*
+
+COPY experiments/requirements-bags.txt /tmp/requirements-bags.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements-bags.txt && rm /tmp/requirements-bags.txt
 
 WORKDIR /work
 CMD ["bash"]

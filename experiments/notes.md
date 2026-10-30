@@ -1,27 +1,58 @@
-# Experiment Notes
+# Experiment Protocol
 
-## Environment
-- Indoor office corridor
-- Static environment (no moving obstacles)
-- Consistent lighting conditions
+## Design
 
-## Robot Motion
-- Constant linear velocity
-- Fixed trajectory for all runs
+The comparison isolates the **middleware**: both stacks run the same SLAM algorithm
+with the same parameters on the same recorded sensor data.
 
-## Experiment Duration
-- 5 minutes per run
+| Factor | Controlled by |
+|---|---|
+| Algorithm | `slam_toolbox` (synchronous mode) on both ROS1 Noetic and ROS2 Humble |
+| Parameters | One shared file, `config/slam_toolbox.yaml`, loaded unchanged by both launch files |
+| Sensor input | One recorded bag, replayed to both stacks (`ROS1 .bag` and its converted ROS2 form) |
+| Time | Simulated time from the bag (`--clock`, `use_sim_time`) |
+| Replay QoS (ROS2) | `config/qos_overrides.yaml` for every replayed topic |
+| Order effects | Counterbalanced rounds (ROS1→ROS2, then ROS2→ROS1, ...) in `run_matrix.sh` |
+| Environment | Fresh container per run; optional CPU/memory pinning via `DOCKER_ARGS` |
 
-## Map Saving
-- Maps are saved automatically at the end of each experiment run
-- ROS1 maps are saved using map_server
-- ROS2 maps are saved using slam_toolbox services
+GMapping is kept as a **ROS1-only baseline** (`ALGO=gmapping`, `config/gmapping.yaml`).
+The ROS2 GMapping ports are unofficial and do not expose the same parameters, so a
+ROS2 GMapping run would not be parameter-equivalent.
 
-## Map Evaluation
-- Mapping quality is evaluated based on consistency across multiple runs
-- Qualitative comparison is performed using occupancy grid images
+## Recording the bag
 
-## Notes
-- All experiments are executed for a fixed duration.
-- The robot follows a repeatable trajectory during each run.
-- ROS1 and ROS2 experiments are conducted under identical conditions.
+1. Indoor office corridor, static environment, consistent lighting.
+2. Stop any SLAM node. Start the robot base and LiDAR drivers only.
+3. `experiments/record_bag.sh corridor_01` while driving the fixed trajectory at constant
+   linear velocity. Records `/scan /odom /tf /tf_static` for `DURATION` seconds (default 300).
+4. Validate: `python3 experiments/inspect_bag.py data/bags/corridor_01.bag`
+   (fails if `/tf` already contains `map->odom`, i.e. SLAM was running).
+5. Record several bags (different days / trajectories) if the study should generalise
+   beyond one dataset; each bag is analysed as its own condition.
+
+## Replay runs
+
+- `BAG=data/bags/corridor_01.bag RUNS=5 ./experiments/run_matrix.sh`
+- At least **5 runs per stack** per condition. With fewer than 4 per group the two-sided
+  Mann-Whitney test cannot reach p < 0.05.
+- Keep the host idle during a batch; use `DOCKER_ARGS="--cpuset-cpus=2,3"` to pin cores.
+- Playback rate 1.0 for the reported results. Higher rates are for stress tests only and
+  are reported as a separate condition.
+
+## Live runs
+
+Live runs (`./experiments/run_ros1.sh` without `BAG`) are kept as a sanity check that
+replay behaviour matches the real robot. They are not used for the statistical comparison,
+since trajectory and environment cannot be repeated exactly.
+
+## Analysis
+
+- Per run: CPU mean and p95, memory mean, peak and growth.
+- Across runs: mean ± 95% CI per stack, ROS2−ROS1 difference, two-sided Mann-Whitney U,
+  Cliff's delta (`metrics/compare_groups.py`).
+- Mapping quality is evaluated qualitatively for now (occupancy grid images).
+
+## Known gaps (next iterations)
+
+- CPU/memory is system-wide, and includes the bag player. Per-process metrics are planned.
+- Maps are not saved automatically yet.
