@@ -46,6 +46,9 @@ if you want to cite the DOI inside the dataset or the paper → Publish.
 
 Add the DOI badge to the README and the DOI to `CITATION.cff` (`identifiers:`).
 
+Before recording, fill in [hardware.md](hardware.md); the dataset README and the paper's
+setup section are written from it, and it includes the publication checklist.
+
 ## 3. Code DOI (GitHub ↔ Zenodo)
 
 1. On zenodo.org, sign in with GitHub, open *GitHub* settings and switch the repository on.

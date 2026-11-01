@@ -7,6 +7,7 @@ Groups are formed by one run property (--group-by):
     ros_distro   e.g. Humble vs Jazzy
     variant      stack + distro + RMW in one label (any mix of the above)
     condition    stress conditions, e.g. default vs cpus1 vs quota0.5
+    arch         CPU architecture, e.g. amd64 (laptop) vs arm64 (robot computer)
     rate, algo   playback rate, SLAM algorithm
 
 Each run is reduced to per-run metrics (system CPU/memory from cpu_mem.csv plus the
@@ -85,10 +86,10 @@ EXTRA_METRICS = [
     ("map_completeness_m", "Map completeness error vs reference", "m"),
 ]
 
-GROUP_KEYS = ("stack", "variant", "rmw", "ros_distro", "condition", "rate", "algo")
-BASE_COMPAT = ("algo", "mode", "bag_id", "rate", "role", "condition")
+GROUP_KEYS = ("stack", "variant", "rmw", "ros_distro", "condition", "arch", "rate", "algo")
+BASE_COMPAT = ("algo", "mode", "bag_id", "rate", "role", "condition", "arch")
 STACK_TIED = ("stack", "ros_distro", "rmw")
-PREFERRED_ORDER = ("ros1", "tcpros", "rmw_fastrtps_cpp", "humble", "default")
+PREFERRED_ORDER = ("ros1", "tcpros", "rmw_fastrtps_cpp", "humble", "default", "amd64")
 
 
 # ---------------------------------------------------------------- run properties
@@ -103,6 +104,8 @@ def prop(r, key):
         return "default"
     if key == "role":
         return "all"
+    if key == "arch":
+        return "unknown"
     if key == "variant":
         rmw = prop(r, "rmw")
         if r.get("stack") == "ros1":
@@ -184,7 +187,7 @@ def discover(results_dir):
 
 FILTERS = (("algo", "algo"), ("mode", "mode"), ("bag", "bag_id"), ("tag", "run_tag"),
            ("stack", "stack"), ("rmw", "rmw"), ("distro", "ros_distro"),
-           ("condition", "condition"), ("variant", "variant"))
+           ("condition", "condition"), ("variant", "variant"), ("arch", "arch"))
 
 
 def select(runs, args):
@@ -402,7 +405,7 @@ def to_markdown(report):
 
 
 def write_runs_csv(path, groups, group_by):
-    fields = ["group", "stack", "ros_distro", "rmw", "variant", "condition", "run_dir", "experiment_id",
+    fields = ["group", "stack", "ros_distro", "rmw", "variant", "condition", "arch", "run_dir", "experiment_id",
               "algo", "mode", "bag_id", "rate", "run_tag", "samples"]
     fields += [k for k, _, _ in METRICS + EXTRA_METRICS]
     with open(path, "w", newline="") as f:
@@ -411,17 +414,17 @@ def write_runs_csv(path, groups, group_by):
         for g, runs in groups.items():
             for r in runs:
                 row = {"group": g, "run_dir": r["_dir"], "samples": r["metrics"]["samples"]}
-                for key in ("stack", "ros_distro", "rmw", "variant", "condition", "experiment_id",
+                for key in ("stack", "ros_distro", "rmw", "variant", "condition", "arch", "experiment_id",
                             "algo", "mode", "bag_id", "rate", "run_tag"):
-                    row[key] = prop(r, key) if key in ("rmw", "variant", "condition") else r.get(key)
+                    row[key] = prop(r, key) if key in ("rmw", "variant", "condition", "arch") else r.get(key)
                 row.update({k: (round(r["metrics"][k], 6) if r["metrics"].get(k) is not None else None)
                             for k, _, _ in METRICS + EXTRA_METRICS})
                 w.writerow(row)
 
 
 # ---------------------------------------------------------------- main
-def main():
-    ap = argparse.ArgumentParser(description="Compare groups of repeated runs.")
+def add_selection_args(ap):
+    """Arguments that select and group runs (shared with sample_size.py)."""
     ap.add_argument("--results", default="results/raw", help="results root (default results/raw)")
     ap.add_argument("--group-by", default="stack", choices=GROUP_KEYS)
     ap.add_argument("--baseline", help="group the others are compared with (default: first group)")
@@ -434,16 +437,14 @@ def main():
     ap.add_argument("--distro", help="filter: ROS distribution")
     ap.add_argument("--condition", help="filter: run condition")
     ap.add_argument("--variant", help="filter: variant label(s), e.g. ros1-noetic,ros2-humble-zenoh")
+    ap.add_argument("--arch", help="filter: architecture (amd64, arm64)")
     ap.add_argument("--trim-start", type=float, default=0.0,
                     help="ignore samples in the first N seconds of each run")
     ap.add_argument("--include-failed", action="store_true", help="keep runs with exit_status != 0")
-    ap.add_argument("--require-identical-params", action="store_true",
-                    help="exit 1 unless every run holds identical effective parameters")
-    ap.add_argument("--json", help="write the full report as JSON")
-    ap.add_argument("--csv", help="write per-run metrics as CSV")
-    ap.add_argument("--markdown", help="write the markdown table to a file")
-    args = ap.parse_args()
 
+
+def load_groups(args):
+    """Select runs, check they are poolable, and group them. Returns (groups, order, condition)."""
     runs = select(discover(args.results), args)
     across, within = compat_keys(args.group_by)
 
@@ -486,14 +487,29 @@ def main():
     if not groups:
         print("No runs match the selection.", file=sys.stderr)
         sys.exit(1)
-    if len(groups) == 1:
-        print(f"Only one group by '{args.group_by}' ({next(iter(groups))}): descriptive statistics only.",
-              file=sys.stderr)
 
     order = order_groups(list(groups), args.baseline)
     first = groups[order[0]][0]
     condition = {k: prop(first, k) for k in across}
     condition["run_tag"] = args.tag
+    return groups, order, condition
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Compare groups of repeated runs.")
+    add_selection_args(ap)
+    ap.add_argument("--require-identical-params", action="store_true",
+                    help="exit 1 unless every run holds identical effective parameters")
+    ap.add_argument("--json", help="write the full report as JSON")
+    ap.add_argument("--csv", help="write per-run metrics as CSV")
+    ap.add_argument("--markdown", help="write the markdown table to a file")
+    args = ap.parse_args()
+
+    groups, order, condition = load_groups(args)
+    if len(groups) == 1:
+        print(f"Only one group by '{args.group_by}' ({order[0]}): descriptive statistics only.",
+              file=sys.stderr)
+
     params = param_check(groups)
     report = build_report(groups, order, args.group_by, condition, args.trim_start, params)
     md = to_markdown(report)

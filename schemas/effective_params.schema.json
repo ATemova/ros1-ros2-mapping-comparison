@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ATemova/ros1-ros2-mapping-comparison/blob/main/schemas/effective_params.schema.json",
+  "title": "effective_params.json",
+  "description": "Parameters the SLAM node actually held, compared with the config file. Written by experiments/dump_params.py.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "stack",
+    "dump_ok",
+    "effective",
+    "mismatched",
+    "missing"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "stack": {
+      "enum": [
+        "ros1",
+        "ros2"
+      ]
+    },
+    "dump_ok": {
+      "type": "boolean"
+    },
+    "effective": {
+      "type": "object"
+    },
+    "mismatched": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "config",
+          "effective"
+        ]
+      }
+    },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "use_sim_time": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "examples": [
+    {
+      "schema_version": 1,
+      "stack": "ros2",
+      "dump_ok": true,
+      "effective": {
+        "resolution": 0.05
+      },
+      "mismatched": {},
+      "missing": [],
+      "use_sim_time": true
+    }
+  ]
+}

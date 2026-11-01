@@ -19,6 +19,13 @@ GMapping is kept as a **ROS1-only baseline** (`ALGO=gmapping`, `config/gmapping.
 The ROS2 GMapping ports are unofficial and do not expose the same parameters, so a
 ROS2 GMapping run would not be parameter-equivalent.
 
+## Before recording
+
+- Fill in `docs/hardware.md` (robot, computer, LiDAR, environment) and its publication checklist.
+- Run a pilot: 3 runs per variant on the first bag, then `make sample-size TAG=<pilot>` to set
+  the number of runs per group for the main batches. Record the chosen number here before
+  running them.
+
 ## Recording the bag
 
 1. Indoor office corridor, static environment, consistent lighting.

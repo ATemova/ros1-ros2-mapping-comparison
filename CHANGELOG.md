@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- arm64 support: Dockerfiles build for amd64 and arm64; CI runs ROS1, ROS2 (Humble and Jazzy with Fast DDS) and the Docker end-to-end job on `ubuntu-24.04-arm` as well; every run records `arch`, run IDs end with it, and runs of different architectures are never pooled (`--arch` filter, `--group-by arch`).
+- Release workflow (`.github/workflows/images.yml`): on each published release, builds the three images for amd64 and arm64 on digest-pinned bases, pushes them to GHCR, smoke-tests both architectures and attaches `images.lock`; `make pull VERSION=<tag>` uses them locally.
+- Base-image pinning: `docker/build.sh` (used by `make` and `run_matrix.sh`) and `docker/lock.sh`; `make lock` writes `docker/base-images.lock` with multi-arch digests.
+- Data-format contract: JSON Schemas in `schemas/` for `run_meta`, `run_metrics`, `run_manifest` and `effective_params`; `schema_version` in every file; `experiments/validate_runs.py` (standard library) and `make validate`; contract tests that validate the real writers' output; CI validates every run it produces. `docs/data-format.md` defines the versioning policy.
+- `metrics/sample_size.py` and `make sample-size`: runs per group needed for each comparison from pilot runs (exact t-test power, matching statsmodels, adjusted for the Mann-Whitney test) and the smallest difference detectable with the planned number of runs.
+- `run_manifest.json` records the image's registry digests and pinned base image.
+- `docs/hardware.md` (robot, sensor and environment template with publication checklist) and `docs/reproducibility.md`.
+
+### Changed
+
+- GitHub Actions moved to their Node 24 majors (`checkout@v7`, `setup-python@v7`, `upload-artifact@v7`, `download-artifact@v8`); runners pinned to `ubuntu-24.04` instead of `ubuntu-latest`.
+- `compare_groups.py` run selection is shared with `sample_size.py` (`add_selection_args`, `load_groups`); map consistency in reports uses exactly the runs the report selected.
+
 ## [0.2.0] - 2026-10-31
 
 Complete experiment pipeline; still no final results. Both stacks now run the same SLAM

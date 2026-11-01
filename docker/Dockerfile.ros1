@@ -1,7 +1,14 @@
-# ROS1 Noetic environment for the mapping experiments.
-# Build:  docker build -f docker/Dockerfile.ros1 -t ros1-mapping .
-# Run:    docker run -it --rm -v "$PWD":/work -w /work ros1-mapping ./experiments/run_ros1.sh
-FROM ros:noetic
+# ROS1 Noetic environment for the mapping experiments (amd64 and arm64).
+# Build:  docker/build.sh ros1 noetic        (or: make image-ros1)
+# Run:    docker run -it --rm -v "$PWD":/work -w /work ros1-mapping:noetic ./experiments/run_ros1.sh
+# BASE_IMAGE is pinned by digest from docker/base-images.lock when that file exists.
+ARG BASE_IMAGE=ros:noetic
+FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+LABEL org.opencontainers.image.source="https://github.com/ATemova/ros1-ros2-mapping-comparison" \
+      org.opencontainers.image.description="ROS1 Noetic environment for ros1-ros2-mapping-comparison" \
+      org.opencontainers.image.licenses="MIT" \
+      io.github.atemova.base-image="${BASE_IMAGE}"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-psutil \

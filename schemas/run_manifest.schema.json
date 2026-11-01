@@ -1,0 +1,319 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ATemova/ros1-ros2-mapping-comparison/blob/main/schemas/run_manifest.schema.json",
+  "title": "run_manifest.json",
+  "description": "Provenance of one run: code, image, input hashes, software versions, host. Written by experiments/write_manifest.py.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "git",
+    "image",
+    "inputs",
+    "software",
+    "host",
+    "env"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "experiment_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "variant": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "arch": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "condition": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "git": {
+      "type": "object",
+      "required": [
+        "commit",
+        "branch",
+        "dirty"
+      ],
+      "properties": {
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dirty": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": [
+        "tag",
+        "id",
+        "in_container"
+      ],
+      "properties": {
+        "tag": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repo_digests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "base": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "in_container": {
+          "type": "boolean"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "required": [
+        "config_sha256"
+      ],
+      "properties": {
+        "params": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "launch": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "qos_overrides": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        "config_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "bag": {
+          "type": "object",
+          "required": [
+            "path",
+            "sha256",
+            "size_bytes"
+          ],
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "size_bytes": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "software": {
+      "type": "object",
+      "required": [
+        "ros_distro",
+        "ros_packages",
+        "python"
+      ],
+      "properties": {
+        "ros_distro": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rmw": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ros_packages": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "python": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "required": [
+        "hostname",
+        "os",
+        "kernel",
+        "arch",
+        "limits"
+      ],
+      "properties": {
+        "hostname": {
+          "type": "string"
+        },
+        "os": {
+          "type": "string"
+        },
+        "kernel": {
+          "type": "string"
+        },
+        "arch": {
+          "type": "string"
+        },
+        "cpu_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mem_total_mb": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "limits": {
+          "type": "object"
+        }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "examples": [
+    {
+      "schema_version": 1,
+      "experiment_id": "x",
+      "variant": "ros1-noetic",
+      "arch": "arm64",
+      "condition": "default",
+      "git": {
+        "commit": "df8b1a4",
+        "branch": "main",
+        "dirty": false
+      },
+      "image": {
+        "tag": "ros1-mapping:noetic",
+        "id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "repo_digests": [],
+        "base": "ros:noetic@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "in_container": true
+      },
+      "inputs": {
+        "params": {
+          "path": "config/slam_toolbox.yaml",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "config_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "software": {
+        "ros_distro": "noetic",
+        "rmw": "tcpros",
+        "ros_packages": {
+          "slam-toolbox": "1.5.7"
+        },
+        "python": {
+          "python": "3.8.10"
+        }
+      },
+      "host": {
+        "hostname": "robot",
+        "os": "Ubuntu 20.04.6 LTS",
+        "kernel": "5.15",
+        "arch": "aarch64",
+        "limits": {}
+      },
+      "env": {
+        "ROS_DISTRO": "noetic"
+      }
+    }
+  ]
+}

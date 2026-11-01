@@ -212,3 +212,117 @@ def kruskal_wallis(groups):
         return {"h": float("nan"), "df": k - 1, "p": float("nan")}
     h /= correction
     return {"h": h, "df": k - 1, "p": chi2_sf(h, k - 1)}
+
+
+# ---------------------------------------------------------------- power (needs numpy)
+# Exact power of the two-sided two-sample t-test: the noncentral t distribution is
+# integrated over the chi-square distribution of the variance estimate (Simpson rule).
+# Matches statsmodels' TTestIndPower to ~1e-11 (tests/test_sample_size.py).
+def _chi2_grid(df, points=4001):
+    """Simpson grid over s = sqrt(V/df), V ~ chi2(df); returns (s, weight * density of s).
+
+    Integrating over s instead of V/df removes the square-root singularity at 0, so the
+    rule stays accurate for small df."""
+    import numpy as np
+    span = 12.0 * math.sqrt(2.0 / df) + 12.0 / df
+    s = np.linspace(0.0, math.sqrt(1.0 + span), points)
+    k = df / 2.0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        # density of u = V/df is df * chi2pdf(df*u); ds-density = that * 2s
+        log_pdf = (math.log(2.0 * df) + (k - 1.0) * np.log(df * s * s) - df * s * s / 2.0
+                   - k * math.log(2.0) - math.lgamma(k) + np.log(s))
+    dens = np.where(s > 0, np.exp(log_pdf), 0.0)
+    w = np.ones(points)
+    w[1:-1:2] = 4.0
+    w[2:-1:2] = 2.0
+    w *= (s[1] - s[0]) / 3.0
+    return s, w * dens
+
+
+_GRIDS = {}
+_TCRIT = {}
+
+
+def _norm_cdf(x):
+    """Standard normal CDF for a numpy array (exact: math.erf per element)."""
+    global _ERF
+    if _ERF is None:
+        import numpy as np
+        _ERF = np.frompyfunc(math.erf, 1, 1)
+    return 0.5 * (1.0 + _ERF(x / math.sqrt(2.0)).astype(float))
+
+
+_ERF = None
+
+
+def _grid(df):
+    if df not in _GRIDS:
+        _GRIDS[df] = _chi2_grid(df)
+    return _GRIDS[df]
+
+
+def t_two_sided_sf(t, df):
+    """P(|T| > t) for central t with df degrees of freedom."""
+    import numpy as np
+    s, w = _grid(df)
+    return float(np.sum(w * 2.0 * _norm_cdf(-t * s)))
+
+
+def t_crit_two_sided(alpha, df):
+    key = (alpha, df)
+    if key not in _TCRIT:
+        lo, hi = 0.0, 1000.0
+        for _ in range(80):
+            mid = (lo + hi) / 2.0
+            if t_two_sided_sf(mid, df) > alpha:
+                lo = mid
+            else:
+                hi = mid
+        _TCRIT[key] = (lo + hi) / 2.0
+    return _TCRIT[key]
+
+
+def ttest_power(d, n, alpha=0.05):
+    """Power of a two-sided two-sample t-test, n runs per group, effect size d (Cohen's d)."""
+    import numpy as np
+    if n < 2:
+        return 0.0
+    df = 2 * n - 2
+    tc = t_crit_two_sided(alpha, df)
+    delta = abs(d) * math.sqrt(n / 2.0)
+    s, w = _grid(df)
+    return float(np.sum(w * (_norm_cdf(delta - tc * s) + _norm_cdf(-delta - tc * s))))
+
+
+def runs_needed(d, power=0.8, alpha=0.05, max_n=500):
+    """Smallest n per group with t-test power >= power, or None if above max_n."""
+    if d is None or d != d or d == 0:
+        return None
+    if math.isinf(d):
+        return 2
+    if ttest_power(d, max_n, alpha) < power:
+        return None
+    lo, hi = 2, max_n
+    if ttest_power(d, lo, alpha) >= power:
+        return lo
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        if ttest_power(d, mid, alpha) >= power:
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
+
+def min_detectable_d(n, power=0.8, alpha=0.05):
+    """Smallest |d| detectable with n runs per group at the given power."""
+    if n < 2:
+        return float("inf")
+    lo, hi = 0.0, 50.0
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if ttest_power(mid, n, alpha) >= power:
+            hi = mid
+        else:
+            lo = mid
+    return hi

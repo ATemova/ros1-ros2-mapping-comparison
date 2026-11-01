@@ -165,7 +165,7 @@ All latencies here are measured on the SLAM machine, so they do not depend on it
 
 ## Variants: stack, distribution, middleware
 
-Every run records `stack`, `ros_distro`, `rmw` and a `variant` label
+Every run records `stack`, `ros_distro`, `rmw`, `arch` (`amd64`, `arm64`) and a `variant` label
 (`ros1-noetic`, `ros2-humble-fastrtps`, `ros2-jazzy-zenoh`, ...).
 
 | Dimension | How to set it | Notes |
@@ -178,7 +178,7 @@ Noetic reached end of life in May 2025, Humble is supported until May 2027 and J
 May 2029, which is why the study covers both ROS2 LTS releases. Newer distributions
 (e.g. Lyrical) work the same way: `DISTRO=<name>` builds the image and the lifecycle launch path applies.
 
-`compare_groups.py --group-by stack|rmw|ros_distro|variant|condition` compares any of these;
+`compare_groups.py --group-by stack|rmw|ros_distro|variant|condition|arch` compares any of these;
 everything else (algorithm, bag, rate, condition, ...) must match or the script refuses to pool.
 With three or more groups the report adds a Kruskal–Wallis test and Holm-adjusted pairwise p-values.
 

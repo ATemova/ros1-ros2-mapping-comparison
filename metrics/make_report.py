@@ -324,7 +324,10 @@ def main():
 
         try:
             from map_quality import consistency, consistency_markdown
-            mc = consistency(args.results, args.tag, 10.0, args.group_by if args.group_by != "condition" else "variant")
+            selected = {os.path.abspath(r["run_dir"]) for r in rows}
+            mc = consistency(args.results, args.tag, 10.0,
+                             args.group_by if args.group_by not in ("condition", "arch") else "variant",
+                             run_dirs=selected)
             if mc["order"]:
                 md = consistency_markdown(mc)
                 with open(os.path.join(out, "map_consistency.md"), "w") as f:
