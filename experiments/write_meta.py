@@ -15,8 +15,10 @@ import socket
 import sys
 
 SCHEMA_VERSION = 1
+ARCH_NAMES = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64",
+              "armv7l": "armhf", "armv8l": "arm64"}
 STRING_KEYS = {"experiment_id", "bag_id", "bag_path", "run_tag", "params_file", "ros_distro",
-               "condition", "cpu_set", "variant", "rmw", "ros_domain_id"}
+               "condition", "cpu_set", "variant", "rmw", "ros_domain_id", "arch"}
 NUMBER_RE = re.compile(r"-?(0|[1-9][0-9]*)(\.[0-9]+)?")
 
 
@@ -117,6 +119,11 @@ def resource_limits():
     return out
 
 
+def host_arch():
+    m = platform.machine().lower()
+    return ARCH_NAMES.get(m, m or "unknown")
+
+
 def derived_condition(res):
     parts = []
     if res.get("cpu_affinity") and res.get("cpu_count") and res["cpu_affinity"] < res["cpu_count"]:
@@ -144,6 +151,8 @@ def main():
 
     res = resource_limits()
     meta["resources"] = res
+    if not meta.get("arch"):
+        meta["arch"] = host_arch()
     if not meta.get("condition"):
         meta["condition"] = derived_condition(res)
 

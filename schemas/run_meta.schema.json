@@ -1,0 +1,349 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ATemova/ros1-ros2-mapping-comparison/blob/main/schemas/run_meta.schema.json",
+  "title": "run_meta.json",
+  "description": "Conditions and status of one run. Written by experiments/write_meta.py. Fields may be added within schema_version 1; renaming or removing a field, or changing its type, increments schema_version.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "experiment_id",
+    "stack",
+    "ros_distro",
+    "role",
+    "mode",
+    "exit_status",
+    "started_at",
+    "finished_at",
+    "condition",
+    "resources",
+    "git",
+    "host"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "experiment_id": {
+      "type": "string"
+    },
+    "stack": {
+      "enum": [
+        "ros1",
+        "ros2"
+      ]
+    },
+    "ros_distro": {
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "all",
+        "slam",
+        "player"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "live",
+        "replay"
+      ]
+    },
+    "algo": {
+      "enum": [
+        "slam_toolbox",
+        "gmapping"
+      ]
+    },
+    "rmw": {
+      "type": "string"
+    },
+    "variant": {
+      "type": "string"
+    },
+    "arch": {
+      "type": "string"
+    },
+    "condition": {
+      "type": "string"
+    },
+    "cpu_set": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bag_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bag_path": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rate": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "duration_s": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "settle_s": {
+      "type": "number"
+    },
+    "use_sim_time": {
+      "type": "boolean"
+    },
+    "run_tag": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bag_exit_code": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "scans_expected": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "map_received": {
+      "type": "boolean"
+    },
+    "map_saved": {
+      "type": "boolean"
+    },
+    "pose_graph_saved": {
+      "type": "boolean"
+    },
+    "params_ok": {
+      "type": "boolean"
+    },
+    "metrics_samples": {
+      "type": "integer"
+    },
+    "latency_events": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "exit_status": {
+      "type": "integer"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "finished_at": {
+      "type": "string"
+    },
+    "params_file": {
+      "type": "string"
+    },
+    "rmw_implementation": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ros_master_uri": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ros_domain_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "resources": {
+      "type": "object",
+      "required": [
+        "cpu_count",
+        "cpu_affinity",
+        "cpu_quota",
+        "mem_limit_mb"
+      ],
+      "properties": {
+        "cpu_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cpu_affinity": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cpu_quota": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mem_limit_mb": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      }
+    },
+    "git": {
+      "type": "object",
+      "required": [
+        "commit",
+        "branch"
+      ],
+      "properties": {
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "required": [
+        "hostname",
+        "kernel",
+        "cpu_count"
+      ],
+      "properties": {
+        "hostname": {
+          "type": "string"
+        },
+        "kernel": {
+          "type": "string"
+        },
+        "cpu_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cpu_count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mem_total_mb": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "in_container": {
+          "type": "boolean"
+        },
+        "python": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "if": {
+    "properties": {
+      "role": {
+        "enum": [
+          "all",
+          "slam"
+        ]
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "algo",
+      "variant",
+      "rmw",
+      "map_saved",
+      "params_ok",
+      "metrics_samples"
+    ]
+  },
+  "additionalProperties": true,
+  "examples": [
+    {
+      "schema_version": 1,
+      "experiment_id": "20261101_120000_ros2-humble-fastrtps_amd64",
+      "stack": "ros2",
+      "ros_distro": "humble",
+      "role": "all",
+      "rmw": "rmw_fastrtps_cpp",
+      "variant": "ros2-humble-fastrtps",
+      "condition": "default",
+      "cpu_set": null,
+      "arch": "amd64",
+      "algo": "slam_toolbox",
+      "mode": "replay",
+      "bag_id": "synthetic",
+      "bag_path": "data/bags/synthetic",
+      "rate": 1.0,
+      "duration_s": null,
+      "settle_s": 5,
+      "use_sim_time": true,
+      "run_tag": "pilot",
+      "bag_exit_code": 0,
+      "scans_expected": 400,
+      "map_received": true,
+      "map_saved": true,
+      "pose_graph_saved": true,
+      "params_ok": true,
+      "metrics_samples": 45,
+      "latency_events": 3021,
+      "exit_status": 0,
+      "started_at": "2026-11-01T11:00:00Z",
+      "finished_at": "2026-11-01T11:01:00Z",
+      "params_file": "slam_toolbox.yaml",
+      "rmw_implementation": "rmw_fastrtps_cpp",
+      "ros_master_uri": null,
+      "ros_domain_id": null,
+      "resources": {
+        "cpu_count": 8,
+        "cpu_affinity": 8,
+        "cpu_quota": null,
+        "mem_limit_mb": null
+      },
+      "git": {
+        "commit": "df8b1a4",
+        "branch": "main"
+      },
+      "host": {
+        "hostname": "robot",
+        "kernel": "6.8.0",
+        "cpu_model": "Cortex-A72",
+        "cpu_count": 4,
+        "mem_total_mb": 3800.0,
+        "in_container": true,
+        "python": "3.10.12"
+      }
+    }
+  ]
+}

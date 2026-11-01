@@ -1,0 +1,201 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/ATemova/ros1-ros2-mapping-comparison/blob/main/schemas/run_metrics.schema.json",
+  "title": "run_metrics.json",
+  "description": "Metrics of one run, computed by metrics/analyze_run.py. `summary` holds the headline numbers compared across runs; definitions in docs/metrics.md. Sections are present only when their input files exist.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_dir",
+    "summary"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_dir": {
+      "type": "string"
+    },
+    "stack": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "algo": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "slam_cpu_mean": {
+          "type": "number"
+        },
+        "slam_cpu_p95": {
+          "type": "number"
+        },
+        "slam_rss_mean_mb": {
+          "type": "number"
+        },
+        "slam_rss_peak_mb": {
+          "type": "number"
+        },
+        "slam_rss_growth_mb": {
+          "type": "number"
+        },
+        "slam_rss_slope_mb_per_min": {
+          "type": "number"
+        },
+        "middleware_cpu_mean": {
+          "type": "number"
+        },
+        "middleware_cpu_p95": {
+          "type": "number"
+        },
+        "middleware_rss_mean_mb": {
+          "type": "number"
+        },
+        "middleware_rss_peak_mb": {
+          "type": "number"
+        },
+        "launch_cpu_mean": {
+          "type": "number"
+        },
+        "launch_cpu_p95": {
+          "type": "number"
+        },
+        "launch_rss_mean_mb": {
+          "type": "number"
+        },
+        "launch_rss_peak_mb": {
+          "type": "number"
+        },
+        "bag_player_cpu_mean": {
+          "type": "number"
+        },
+        "bag_player_cpu_p95": {
+          "type": "number"
+        },
+        "bag_player_rss_mean_mb": {
+          "type": "number"
+        },
+        "bag_player_rss_peak_mb": {
+          "type": "number"
+        },
+        "net_total_mb": {
+          "type": "number"
+        },
+        "net_rate_kBps": {
+          "type": "number"
+        },
+        "scan_drop_rate": {
+          "type": "number"
+        },
+        "scan_gap_drop_rate": {
+          "type": "number"
+        },
+        "scan_to_map_latency_ms": {
+          "type": "number"
+        },
+        "scan_to_map_latency_p95_ms": {
+          "type": "number"
+        },
+        "tf_update_latency_ms": {
+          "type": "number"
+        },
+        "tf_update_latency_p95_ms": {
+          "type": "number"
+        },
+        "map_period_s": {
+          "type": "number"
+        },
+        "map_period_jitter_ms": {
+          "type": "number"
+        },
+        "map_period_wall_s": {
+          "type": "number"
+        },
+        "map_period_wall_jitter_ms": {
+          "type": "number"
+        },
+        "map_age_ms": {
+          "type": "number"
+        },
+        "time_to_first_map_s": {
+          "type": "number"
+        },
+        "ate_rmse_m": {
+          "type": "number"
+        },
+        "rpe_trans_rmse_m": {
+          "type": "number"
+        },
+        "rpe_rot_rmse_deg": {
+          "type": "number"
+        },
+        "map_cell_accuracy": {
+          "type": "number"
+        },
+        "map_wall_f1": {
+          "type": "number"
+        },
+        "map_wall_error_m": {
+          "type": "number"
+        },
+        "map_completeness_m": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "system": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "processes": {
+      "type": "object"
+    },
+    "network": {
+      "type": "object"
+    },
+    "latency": {
+      "type": "object"
+    },
+    "trajectory": {
+      "type": "object"
+    },
+    "map": {
+      "type": "object"
+    },
+    "errors": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "examples": [
+    {
+      "schema_version": 1,
+      "run_dir": "results/raw/ros2/x",
+      "stack": "ros2",
+      "algo": "slam_toolbox",
+      "summary": {
+        "slam_cpu_mean": 12.5,
+        "ate_rmse_m": 0.031,
+        "scan_drop_rate": 0.0
+      },
+      "trajectory": {
+        "poses": 120
+      }
+    }
+  ]
+}

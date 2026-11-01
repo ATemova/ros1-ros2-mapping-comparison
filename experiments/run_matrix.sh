@@ -73,13 +73,13 @@ parse_variant() {
     ros1)
       [ -n "${V_RMW}" ] && die "variant '${spec}': ROS1 has no RMW choice"
       V_DISTRO="${V_DISTRO:-noetic}"
-      V_IMAGE="ros1-mapping:${V_DISTRO}"; V_FILE="docker/Dockerfile.ros1"
+      V_IMAGE="ros1-mapping:${V_DISTRO}"
       V_LABEL="ros1-${V_DISTRO}"
       ;;
     ros2)
       V_DISTRO="${V_DISTRO:-humble}"
       V_RMW="${V_RMW:-fastrtps}"
-      V_IMAGE="ros2-mapping:${V_DISTRO}"; V_FILE="docker/Dockerfile.ros2"
+      V_IMAGE="ros2-mapping:${V_DISTRO}"
       local short="${V_RMW#rmw_}"; short="${short%_cpp}"
       case "${short}" in fastdds) short=fastrtps ;; cyclone) short=cyclonedds ;; esac
       V_LABEL="ros2-${V_DISTRO}-${short}"
@@ -131,17 +131,17 @@ docker_run() {
 }
 
 build_if_needed() {
-  local image="$1" file="$2" distro="$3"
+  local image="$1" stack="$2" distro="$3"
   if [ "${BUILD}" = "1" ] || ! docker image inspect "${image}" >/dev/null 2>&1; then
     echo "Building ${image}..."
-    docker build -f "${file}" --build-arg "ROS_DISTRO=${distro}" -t "${image}" . || die "failed to build ${image}"
+    docker/build.sh "${stack}" "${distro}" || die "failed to build ${image}"
   fi
 }
 
-build_if_needed "${TOOLS_IMAGE}" docker/Dockerfile.ros2 humble
+build_if_needed "${TOOLS_IMAGE}" ros2 humble
 for v in "${VARIANT_LIST[@]}"; do
   parse_variant "${v}"
-  build_if_needed "${V_IMAGE}" "${V_FILE}" "${V_DISTRO}"
+  build_if_needed "${V_IMAGE}" "${V_STACK}" "${V_DISTRO}"
 done
 
 if [ ! -f "${STEM}.bag" ] && [ -f "${STEM}/metadata.yaml" ]; then
@@ -161,11 +161,14 @@ echo
 FAILED=0
 run_one() {
   parse_variant "$1"
-  local image_id
+  local image_id repo_digests base_image
   image_id="$(docker image inspect -f '{{.Id}}' "${V_IMAGE}" 2>/dev/null)"
+  repo_digests="$(docker image inspect -f '{{join .RepoDigests ","}}' "${V_IMAGE}" 2>/dev/null)"
+  base_image="$(docker image inspect -f '{{index .Config.Labels "io.github.atemova.base-image"}}' "${V_IMAGE}" 2>/dev/null)"
   echo "=== ${V_LABEL} (round ${ROUND}/${RUNS})"
   DOCKER_ENV=(-e "ALGO=${ALGO}" -e "BAG=${STEM}.bag" -e "RATE=${RATE}" -e "SETTLE=${SETTLE}"
               -e "RUN_TAG=${RUN_TAG}" -e "IMAGE_TAG=${V_IMAGE}" -e "IMAGE_ID=${image_id}"
+              -e "IMAGE_REPO_DIGESTS=${repo_digests}" -e "IMAGE_BASE=${base_image}"
               -e "GIT_DIRTY=${GIT_DIRTY}" ${LIMITS[@]+"${LIMITS[@]}"})
   [ "${V_STACK}" = "ros2" ] && DOCKER_ENV+=(-e "RMW=${V_RMW}")
   [ -n "${CONDITION}" ] && DOCKER_ENV+=(-e "CONDITION=${CONDITION}")

@@ -11,6 +11,7 @@ Definitions of every metric: [docs/metrics.md](../docs/metrics.md).
 | `map_quality.py` | Map accuracy vs. a reference, and cross-run map consistency. |
 | `analyze_run.py` | Runs all of the above on one run directory → `run_metrics.json`. |
 | `compare_groups.py` | Statistics across repeated runs, grouped by stack, RMW, distro, variant or condition: mean ± 95% CI, Mann-Whitney U, Cliff's delta, Kruskal-Wallis + Holm for 3+ groups, parameter identity. |
+| `sample_size.py` | Runs per group needed for each comparison, from pilot runs (`make sample-size`). |
 | `make_report.py` | Markdown report with tables, figures, map consistency and provenance (`make report`). |
 | `summarize_metrics.py`, `compare_runs.py` | Quick summaries of one run / one run per stack (system-wide CPU/memory). |
 | `stats_utils.py`, `metrics_utils.py` | Helpers. |

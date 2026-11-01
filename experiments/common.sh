@@ -71,6 +71,11 @@ if [ "${MODE}" = "replay" ]; then USE_SIM_TIME=true; else USE_SIM_TIME=false; fi
 REQUIRE_MAP="${REQUIRE_MAP:-$([ "${MODE}" = "replay" ] && echo 1 || echo 0)}"
 REQUIRE_PARAMS="${REQUIRE_PARAMS:-1}"
 RMW="${RMW:-${RMW_IMPLEMENTATION:-}}"
+case "$(uname -m)" in
+  x86_64|amd64) ARCH=amd64 ;;
+  aarch64|arm64|armv8l) ARCH=arm64 ;;
+  *) ARCH="$(uname -m)" ;;
+esac
 CPU_SET="${CPU_SET:-}"
 CONDITION="${CONDITION:-}"
 
@@ -370,7 +375,7 @@ config_value() {
 
 new_output_dir() {
   local base_id i=1
-  base_id="$(date +"%Y%m%d_%H%M%S")_${VARIANT:-${STACK}}"
+  base_id="$(date +"%Y%m%d_%H%M%S")_${VARIANT:-${STACK}}_${ARCH}"
   EXPERIMENT_ID="${base_id}"
   while [ -e "results/raw/${STACK}/${EXPERIMENT_ID}" ]; do
     EXPERIMENT_ID="${base_id}_${i}"; i=$((i + 1))
@@ -426,6 +431,7 @@ run_player() {
   python3 experiments/write_meta.py "${OUTPUT_DIR}/run_meta.json" \
     experiment_id="${EXPERIMENT_ID}" stack="${STACK}" ros_distro="${ROS_DISTRO}" role=player \
     rmw="${RMW_EFFECTIVE}" variant="${VARIANT}" condition="${CONDITION}" cpu_set="${CPU_SET}" \
+    arch="${ARCH}" \
     mode=replay bag_id="${BAG_ID}" bag_path="${BAG_PATH}" rate="${RATE}" run_tag="${RUN_TAG}" \
     bag_exit_code="${bag_rc}" metrics_samples="${samples}" exit_status="${status}" \
     started_at="${started_at}" finished_at="${finished_at}" \
@@ -461,7 +467,7 @@ run_experiment() {
   log "Experiment ID: ${EXPERIMENT_ID}"
   log "Output:        ${OUTPUT_DIR}"
   log "Algorithm:     ${ALGO}"
-  log "Variant:       ${VARIANT}${CONDITION:+ (${CONDITION})}"
+  log "Variant:       ${VARIANT} on ${ARCH}${CONDITION:+ (${CONDITION})}"
   if [ "${ROLE}" = "slam" ]; then
     log "Mode:          replay from a remote player${BAG_PATH:+ (${BAG_PATH})}"
   elif [ "${MODE}" = "replay" ]; then
@@ -564,6 +570,7 @@ run_experiment() {
   python3 experiments/write_meta.py "${OUTPUT_DIR}/run_meta.json" \
     experiment_id="${EXPERIMENT_ID}" stack="${STACK}" ros_distro="${ROS_DISTRO}" role="${ROLE}" \
     rmw="${RMW_EFFECTIVE}" variant="${VARIANT}" condition="${CONDITION}" cpu_set="${CPU_SET}" \
+    arch="${ARCH}" \
     algo="${ALGO}" mode="${MODE}" bag_id="${BAG_ID}" bag_path="${BAG_PATH}" \
     rate="$([ "${ROLE}" = "slam" ] || echo "${RATE}")" \
     duration_s="$([ "${MODE}" = "live" ] && echo "${DURATION}")" \

@@ -51,25 +51,26 @@ Sensor data is recorded once on a real mobile robot in a controlled indoor envir
 |---|---|
 | `config/` | Shared SLAM parameters (`slam_toolbox.yaml`, loaded unchanged by both stacks), ROS1-only `gmapping.yaml`, ROS2 replay QoS overrides. |
 | `Makefile` | One-command entry points (`make help`). |
-| `docs/` | [Metric definitions](docs/metrics.md), [parameter mapping](docs/parameter_mapping.md) (generated, checked in CI), [dataset and DOI guide](docs/dataset.md). |
+| `docs/` | [Metrics](docs/metrics.md), [data format](docs/data-format.md), [reproducibility](docs/reproducibility.md), [hardware template](docs/hardware.md), [parameter mapping](docs/parameter_mapping.md) (generated, checked in CI), [dataset and DOI guide](docs/dataset.md). |
+| `schemas/` | JSON Schemas for the per-run files (`run_meta`, `run_metrics`, `run_manifest`, `effective_params`), checked in CI. |
 | `experiments/` | Run scripts (`run_ros1.sh`, `run_ros2.sh`, shared `common.sh`), batch runner `run_matrix.sh`, bag tools (`record_bag.sh`, `convert_bag.sh`, `inspect_bag.py`, `make_synthetic_bag.py`, `cut_bag.py`, `fetch_sample_bag.sh`), dataset packaging, run manifest, protocol notes. |
 | `ros1/` | ROS1 Noetic launch file (`slam_toolbox` or GMapping). |
 | `ros2/` | ROS2 launch file (`slam_toolbox`; plain node on Humble, lifecycle node from Jazzy on). |
 | `data/bags/` | Recorded bags for replay (git-ignored). |
 | `metrics/` | Loggers (resources, ROS timing events), per-run analysis (latency, trajectory ATE/RPE, map quality), repeated-run statistics. |
-| `tests/` | Unit tests (statistics, map quality, trajectory, latency, run analysis). |
+| `tests/` | Unit tests (statistics and power, map quality, trajectory, latency, run analysis, data-format contract). |
 | `plots/` | Scripts that render CPU, memory and occupancy-grid map plots as PNGs. |
 | `results/raw/` | Per-run output (raw logs, `run_meta.json`, `run_metrics.json`, saved map, trajectory, effective parameters), one folder per run ID. |
 | `results/reports/`, `results/report.md` | Batch reports with tables and figures (`make report`); `results/report.md` is the latest. |
-| `docker/` | Dockerfiles for ROS1 Noetic and ROS2 (Humble or Jazzy via build arg; Fast DDS, Cyclone DDS, Zenoh). |
-| `.github/workflows/` | CI: lint and unit tests, ROS1 and ROS2 (Humble/Jazzy × Fast DDS/Cyclone DDS/Zenoh) replay runs on a synthetic bag with ground truth, comparison report, Docker end-to-end via `make`, sample bag when configured. |
+| `docker/` | Dockerfiles for ROS1 Noetic and ROS2 (Humble or Jazzy; Fast DDS, Cyclone DDS, Zenoh) for amd64 and arm64, `build.sh`, base-image lock (`lock.sh`). |
+| `.github/workflows/` | CI: lint, unit and schema tests, ROS1 and ROS2 (Humble/Jazzy × Fast DDS/Cyclone DDS/Zenoh) replay runs on amd64 and arm64 with a synthetic bag and ground truth, comparison report, Docker end-to-end via `make` on both architectures; release workflow publishing multi-arch images to GHCR. |
 | `CITATION.cff`, `.zenodo.json` | Citation metadata and Zenodo archiving. |
 
 ## Requirements
 
 | Component | Version |
 |---|---|
-| OS | Docker on any host (recommended), or Ubuntu 20.04 (Noetic), 22.04 (Humble), 24.04 (Jazzy) |
+| OS | Docker on any host (recommended), or Ubuntu 20.04 (Noetic), 22.04 (Humble), 24.04 (Jazzy); amd64 or arm64 |
 | ROS1 | Noetic + `ros-noetic-slam-toolbox`, `ros-noetic-slam-gmapping`, `ros-noetic-map-server` |
 | ROS2 | Humble or Jazzy + `slam-toolbox`, `nav2-map-server`, `rmw-cyclonedds-cpp`, `rmw-zenoh-cpp` (`ros-<distro>-...`) |
 | Python | 3.8+ (3.8 on Noetic, 3.10 on Humble, 3.12 on Jazzy; CI uses 3.11) |
@@ -92,7 +93,7 @@ make synthetic
 make matrix RUNS=3
 ```
 
-This builds `ros1-mapping:noetic` and `ros2-mapping:humble`, generates a synthetic bag with ground truth, runs ROS1 vs ROS2 three times each, and writes `results/report.md` with tables and figures.
+This builds `ros1-mapping:noetic` and `ros2-mapping:humble` for your machine's architecture, generates a synthetic bag with ground truth, runs ROS1 vs ROS2 three times each, and writes `results/report.md` with tables and figures. To use the exact images of a release instead of building: `make pull VERSION=v0.3.0`.
 
 The study's main commands:
 
@@ -105,6 +106,8 @@ make distros BAG=data/bags/corridor_01.bag
 make stress  BAG=data/bags/corridor_01.bag CPUS=1 MEMORY=2g
 make long
 make report  TAG=<run_tag> GROUP_BY=rmw
+make sample-size TAG=<pilot_tag>
+make validate
 make check
 ```
 
@@ -220,6 +223,13 @@ python3 metrics/compare_groups.py --tag <run_tag> --group-by variant --variant r
 python3 metrics/compare_groups.py --tag a,b --group-by condition --variant ros2-humble-fastrtps
 ```
 
+How many runs each comparison needs, from a few pilot runs (exact t-test power, adjusted for the Mann-Whitney test):
+
+```
+make sample-size TAG=<pilot_tag>
+python3 metrics/sample_size.py --tag <pilot_tag> --stack ros2 --group-by rmw --planned-runs 8
+```
+
 Compare a single ROS1 run against a single ROS2 run:
 
 ```
@@ -240,9 +250,11 @@ Plots are written as PNGs next to the source CSV. Replay runs also save `map.png
 
 This repository provides configuration files and experiment scripts to support reproducibility on similar mobile robot platforms equipped with a 2D LiDAR sensor. No proprietary firmware or internal company code is included.
 
-Each experiment run generates a unique identifier, archives mapping parameters, logs system metrics, records its conditions in `run_meta.json` and its full provenance in `run_manifest.json` (code commit, Docker image id, input hashes, package versions, host and limits), and stores results in a structured, timestamped directory. Replay runs use recorded sensor data, so a batch can be re-run on another machine from the same bag.
+Each experiment run generates a unique identifier, archives mapping parameters, logs system metrics, records its conditions in `run_meta.json` and its full provenance in `run_manifest.json` (code commit, Docker image id and digests, base image, input hashes, package versions, host, architecture and limits), and stores results in a structured, timestamped directory. These files follow versioned JSON Schemas ([docs/data-format.md](docs/data-format.md)). Replay runs use recorded sensor data, so a batch can be re-run on another machine from the same bag.
 
-- CI replays a synthetic bag with ground truth through ROS1 and through ROS2 Humble/Jazzy with each RMW, asserts that maps are produced and that accuracy is within bounds, and runs the full Docker/`make` path end to end. With a sample bag published as a release asset, CI also replays real robot data ([docs/dataset.md](docs/dataset.md)).
+- Every release publishes its Docker images (amd64 and arm64) to GHCR; `make pull VERSION=<tag>` reproduces a release with exactly the same software, and `make lock` pins base images by digest for local builds ([docs/reproducibility.md](docs/reproducibility.md)).
+
+- CI replays a synthetic bag with ground truth through ROS1 and through ROS2 Humble/Jazzy with each RMW, on amd64 and arm64, asserts that maps are produced, that accuracy is within bounds and that every run file matches its schema, and runs the full Docker/`make` path end to end on both architectures. With a sample bag published as a release asset, CI also replays real robot data ([docs/dataset.md](docs/dataset.md)).
 - `make dataset` packages bags, references, parameters and results with checksums for Zenodo; [docs/dataset.md](docs/dataset.md) covers the sample bag, the dataset DOI and the code DOI.
 
 ## Citation

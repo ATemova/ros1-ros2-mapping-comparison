@@ -8,7 +8,10 @@
 #   make stress  BAG=... CPUS=1 MEMORY=2g [VARIANTS="ros1 ros2"]
 #   make long                            30-min synthetic loop bag, memory growth
 #   make report  TAG=<run_tag> [GROUP_BY=rmw]
-#   make check                           unit tests + lint + parameter checks
+#   make sample-size TAG=<pilot_tag> [GROUP_BY=stack]   runs needed per comparison
+#   make pull VERSION=v0.3.0             use the published images of a release
+#   make lock                            pin base images by digest
+#   make check                           unit tests + lint + parameter/schema checks
 # `make help` lists every target and variable.
 
 SHELL := /bin/bash
@@ -37,8 +40,10 @@ export ALGO RUNS RATE SETTLE COOLDOWN CPUS CPU_SET MEMORY CONDITION DOCKER_ARGS 
 
 MATRIX = BAG="$(BAG)" RUN_TAG="$(TAG)" ./experiments/run_matrix.sh
 
+IMAGE_REPO ?= ghcr.io/atemova/ros1-ros2-mapping-comparison
+
 .PHONY: help images image-ros1 image-ros2 synthetic experiment matrix rmw distros stress long \
-        report test lint check sample-bag dataset
+        report sample-size test lint check sample-bag dataset lock pull validate
 
 help:  ## show this help
 	@grep -hE '^[a-z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}'
@@ -46,13 +51,24 @@ help:  ## show this help
 	@echo "Variables: STACK=$(STACK) DISTRO=$(DISTRO) RMW=$(RMW) ALGO=$(ALGO) RUNS=$(RUNS) RATE=$(RATE)"
 	@echo "           BAG=$(BAG) TAG=<timestamp>  stress: CPUS CPU_SET MEMORY CONDITION"
 
-images: image-ros1 image-ros2  ## build ros1-mapping:noetic and ros2-mapping:<DISTRO>
+images: image-ros1 image-ros2  ## build ros1-mapping:noetic and ros2-mapping:<DISTRO> (host arch)
 
 image-ros1:  ## build the ROS1 Noetic image
-	docker build -f docker/Dockerfile.ros1 -t ros1-mapping:noetic .
+	docker/build.sh ros1 noetic
 
 image-ros2:  ## build the ROS2 image for DISTRO (humble, jazzy)
-	docker build -f docker/Dockerfile.ros2 --build-arg ROS_DISTRO=$(DISTRO) -t ros2-mapping:$(DISTRO) .
+	docker/build.sh ros2 $(DISTRO)
+
+lock:  ## pin ros:noetic/humble/jazzy by digest in docker/base-images.lock (commit it)
+	docker/lock.sh update
+
+pull:  ## pull a release's published images (VERSION=v0.3.0) and tag them for local use
+	@[ -n "$(VERSION)" ] || { echo "set VERSION, e.g. make pull VERSION=v0.3.0"; exit 1; }
+	@for img in ros1-noetic ros2-humble ros2-jazzy; do \
+	  stack=$${img%%-*}; distro=$${img#*-}; \
+	  docker pull "$(IMAGE_REPO):$$img-$(VERSION)" && \
+	  docker tag "$(IMAGE_REPO):$$img-$(VERSION)" "$$stack-mapping:$$distro" || exit 1; \
+	done; echo "Tagged ros1-mapping:noetic, ros2-mapping:humble, ros2-mapping:jazzy from $(VERSION)"
 
 synthetic: image-ros2  ## generate data/bags/synthetic.bag (+ ROS2 form, ground truth, floor plan)
 	@if [ ! -f data/bags/synthetic.bag ]; then \
@@ -90,12 +106,20 @@ report:  ## regenerate results/reports/TAG/report.md and results/report.md [GROU
 	  python3 metrics/make_report.py --tag "$(TAG)" --group-by "$(or $(GROUP_BY),stack)" \
 	    $(if $(BASELINE),--baseline "$(BASELINE)") --out "results/reports/$(TAG)" --latest results/report.md
 
+sample-size:  ## runs needed per comparison, from pilot runs: TAG=<pilot> [GROUP_BY=stack] [POWER=0.8]
+	$(PYTHON) metrics/sample_size.py --tag "$(TAG)" --group-by "$(or $(GROUP_BY),stack)" \
+	  --power "$(or $(POWER),0.8)" $(if $(BASELINE),--baseline "$(BASELINE)")
+
+validate:  ## check every run folder in results/raw against the schemas
+	$(PYTHON) experiments/validate_runs.py results/raw
+
 test:  ## unit tests (host Python with numpy)
 	$(PYTHON) -m unittest discover -s tests
 
-lint:  ## shellcheck + parameter/mapping-table checks
-	shellcheck --severity=warning experiments/*.sh
+lint:  ## shellcheck + parameter/mapping-table and schema checks
+	shellcheck --severity=warning experiments/*.sh docker/*.sh
 	$(PYTHON) experiments/check_params.py --check-doc
+	$(PYTHON) experiments/validate_runs.py --self-test
 
 check: test lint  ## everything CI checks without ROS
 

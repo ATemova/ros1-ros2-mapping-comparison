@@ -323,8 +323,10 @@ PAIR_METRICS = [
 ]
 
 
-def consistency(results_dir, tag, max_angle_deg, group_by="variant"):
-    """Pairwise map comparison of all runs with a saved map, grouped by `group_by`."""
+def consistency(results_dir, tag, max_angle_deg, group_by="variant", run_dirs=None):
+    """Pairwise map comparison of all runs with a saved map, grouped by `group_by`.
+
+    run_dirs: optional whitelist of run directories (e.g. the runs a report selected)."""
     from compare_groups import prop
     from stats_utils import mean_ci95
 
@@ -337,6 +339,8 @@ def consistency(results_dir, tag, max_angle_deg, group_by="variant"):
         if tags and meta.get("run_tag") not in tags:
             continue
         if meta.get("exit_status") not in (0, None) or prop(meta, "role") == "player":
+            continue
+        if run_dirs is not None and os.path.abspath(d) not in run_dirs:
             continue
         if os.path.exists(os.path.join(d, "map.yaml")):
             runs.append((prop(meta, group_by), d))

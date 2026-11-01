@@ -77,6 +77,7 @@ def main():
             mismatched[key] = {"config": expected, "effective": held[key]}
 
     report = {
+        "schema_version": 1,
         "stack": stack,
         "dump_ok": bool(held),
         "effective": effective,

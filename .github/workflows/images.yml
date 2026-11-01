@@ -1,0 +1,119 @@
+name: Release images
+
+# Builds the three experiment images for amd64 and arm64 with base images pinned by
+# digest, pushes them to GHCR, and attaches images.lock (base and image digests) to the
+# release. Reproduce a release exactly with: make pull VERSION=<tag>
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Tag to publish images for (e.g. v0.3.0); must exist"
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: images-${{ github.event.release.tag_name || inputs.version }}
+  cancel-in-progress: false
+
+env:
+  VERSION: ${{ github.event.release.tag_name || inputs.version }}
+
+jobs:
+  build:
+    name: ${{ matrix.stack }}-${{ matrix.distro }} (amd64 + arm64)
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {stack: ros1, distro: noetic, file: docker/Dockerfile.ros1}
+          - {stack: ros2, distro: humble, file: docker/Dockerfile.ros2}
+          - {stack: ros2, distro: jazzy, file: docker/Dockerfile.ros2}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.VERSION }}
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: resolve names and the pinned base image
+        id: names
+        run: |
+          repo="ghcr.io/${GITHUB_REPOSITORY,,}"
+          base="ros:${{ matrix.distro }}"
+          pinned="$(docker/lock.sh resolve "$base")"
+          if [ "$pinned" = "$base" ]; then
+            digest="$(docker buildx imagetools inspect "$base" --format '{{json .Manifest}}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])')"
+            pinned="$base@$digest"
+          fi
+          {
+            echo "image=$repo:${{ matrix.stack }}-${{ matrix.distro }}-$VERSION"
+            echo "latest=$repo:${{ matrix.stack }}-${{ matrix.distro }}-latest"
+            echo "base=$pinned"
+          } >> "$GITHUB_OUTPUT"
+      - name: build and push
+        id: push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          build-args: |
+            ROS_DISTRO=${{ matrix.distro }}
+            BASE_IMAGE=${{ steps.names.outputs.base }}
+          tags: |
+            ${{ steps.names.outputs.image }}
+            ${{ steps.names.outputs.latest }}
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: smoke test both architectures
+        run: |
+          for p in linux/amd64 linux/arm64; do
+            docker run --rm --platform "$p" "${{ steps.names.outputs.image }}" bash -c \
+              "source /opt/ros/${{ matrix.distro }}/setup.bash && python3 -c 'import psutil, numpy, yaml' && echo ok \$(uname -m)"
+          done
+      - name: record digests
+        run: |
+          mkdir -p lock
+          printf '%s %s base=%s\n' "${{ steps.names.outputs.image }}" "${{ steps.push.outputs.digest }}" \
+            "${{ steps.names.outputs.base }}" > "lock/${{ matrix.stack }}-${{ matrix.distro }}.lock"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: lock-${{ matrix.stack }}-${{ matrix.distro }}
+          path: lock/
+
+  attach:
+    name: Attach images.lock to the release
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: lock-*
+          merge-multiple: true
+          path: lock/
+      - name: write and upload images.lock
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "# Images published for $VERSION (multi-arch index digests)."
+            echo "# Pull exactly these with: make pull VERSION=$VERSION"
+            echo "# <image> <digest> base=<pinned base image>"
+            cat lock/*.lock
+          } > images.lock
+          cat images.lock
+          gh release upload "$VERSION" images.lock --clobber -R "$GITHUB_REPOSITORY"

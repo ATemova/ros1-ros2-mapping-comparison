@@ -28,6 +28,7 @@ from metrics_utils import read_metrics
 from stats_utils import percentile
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+SCHEMA_VERSION = 1  # schemas/run_metrics.schema.json
 
 
 def _clean(o):
@@ -204,7 +205,7 @@ def analyze(run_dir, reference_traj=None, reference_map=None, ref_max_angle=10.0
         cand = os.path.join(REPO, "data", "bags", f"{bag_id}.reference.yaml")
         reference_map = cand if os.path.exists(cand) else None
 
-    m = {"run_dir": run_dir, "stack": meta.get("stack"), "algo": meta.get("algo")}
+    m = {"schema_version": SCHEMA_VERSION, "run_dir": run_dir, "stack": meta.get("stack"), "algo": meta.get("algo")}
     errs = {}
 
     def p(name):
