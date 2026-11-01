@@ -48,9 +48,9 @@ jobs:
         run: |
           for t in help experiment matrix rmw distros long report sample-size lock validate; do make -n $t TAG=x > /dev/null; done
           make -n pull VERSION=v0.0.0 > /dev/null
+          make -n experiment STACK=ros2 ALGO=slam_toolbox RUNS=5 BAG=data/bags/x.bag TAG=x
       - name: data-format schemas
         run: python experiments/validate_runs.py --self-test
-          make -n experiment STACK=ros2 ALGO=slam_toolbox RUNS=5 BAG=data/bags/x.bag TAG=x
 
   pipeline-smoke:
     name: Analysis pipeline (no ROS)
