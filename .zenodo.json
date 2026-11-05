@@ -1,6 +1,6 @@
 {
   "title": "ROS1 vs ROS2 Mapping Comparison",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Experiment pipeline, metrics and analysis tools for a practical, system-level comparison of ROS1 and ROS2 mapping pipelines on a real mobile robot: identical slam_toolbox parameters on both stacks, bag replay, per-process resources, latency, ATE/RPE and map accuracy, ROS2 middleware (Fast DDS, Cyclone DDS, Zenoh) and distribution (Humble, Jazzy) comparisons.",
   "upload_type": "software",
   "license": "MIT",

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-05
+
 ### Added
 
 - arm64 support: Dockerfiles build for amd64 and arm64; CI runs ROS1, ROS2 (Humble and Jazzy with Fast DDS) and the Docker end-to-end job on `ubuntu-24.04-arm` as well; every run records `arch`, run IDs end with it, and runs of different architectures are never pooled (`--arch` filter, `--group-by arch`).
@@ -120,7 +122,8 @@ First public release of the experimental framework. Experiments and analysis are
 - README: version/status badge, "Requirements" and "Repository structure" sections, known limitations; the "Recent Improvements" list moved into this changelog.
 - `metrics/compare_runs.py` marked executable.
 
-[Unreleased]: https://github.com/ATemova/ros1-ros2-mapping-comparison/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ATemova/ros1-ros2-mapping-comparison/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ATemova/ros1-ros2-mapping-comparison/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ATemova/ros1-ros2-mapping-comparison/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ATemova/ros1-ros2-mapping-comparison/releases/tag/v0.1.0
 
