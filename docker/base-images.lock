@@ -1,0 +1,5 @@
+# Base images pinned by multi-arch index digest. Refresh: make lock
+# Updated 2026-11-19T14:14:28Z
+ros:noetic sha256:72b8bc59035dc0a5b8e07aae28c16caa84192971d72d207c72ed734fb1d5e97d
+ros:humble sha256:d9f14e84747bea639a65e00cf871d2c68ae55385d2acf6239614de0cadb41dcc
+ros:jazzy sha256:00b8d47a6e6384a2834e3d01fa87ae767876543baa574f2d64a75c04ea33c698
