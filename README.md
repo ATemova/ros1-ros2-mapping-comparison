@@ -51,7 +51,7 @@ Sensor data is recorded once on a real mobile robot in a controlled indoor envir
 |---|---|
 | `config/` | Shared SLAM parameters (`slam_toolbox.yaml`, loaded unchanged by both stacks), ROS1-only `gmapping.yaml`, ROS2 replay QoS overrides. |
 | `Makefile` | One-command entry points (`make help`). |
-| `docs/` | [Metrics](docs/metrics.md), [data format](docs/data-format.md), [reproducibility](docs/reproducibility.md), [hardware template](docs/hardware.md), [parameter mapping](docs/parameter_mapping.md) (generated, checked in CI), [dataset and DOI guide](docs/dataset.md). |
+| `docs/` | [Metrics](docs/metrics.md), [data format](docs/data-format.md), [reproducibility](docs/reproducibility.md), [release process](docs/release.md), [hardware template](docs/hardware.md), [parameter mapping](docs/parameter_mapping.md) (generated, checked in CI), [dataset and DOI guide](docs/dataset.md). |
 | `schemas/` | JSON Schemas for the per-run files (`run_meta`, `run_metrics`, `run_manifest`, `effective_params`), checked in CI. |
 | `experiments/` | Run scripts (`run_ros1.sh`, `run_ros2.sh`, shared `common.sh`), batch runner `run_matrix.sh`, bag tools (`record_bag.sh`, `convert_bag.sh`, `inspect_bag.py`, `make_synthetic_bag.py`, `cut_bag.py`, `fetch_sample_bag.sh`), dataset packaging, run manifest, protocol notes. |
 | `ros1/` | ROS1 Noetic launch file (`slam_toolbox` or GMapping). |

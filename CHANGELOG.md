@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Floor-plan references: `experiments/floorplan_to_map.py` turns a plan image into an occupancy grid (scale from metres per pixel or one measured distance, crop, room seeds, wall surfaces only); `map_quality.py register` places it in a bag's SLAM map frame (full rotation search, coarse to fine), reports the fit, warns about near-symmetric alternatives and writes an overlay PNG.
+- Release gate: the *Release images* workflow first checks the milestone named like the release and every earlier version milestone; with open issues it turns the release back into a draft and publishes nothing. `docs/release.md` describes the milestones and the release checklist.
+
 ## [0.3.0] - 2026-11-05
 
 ### Added

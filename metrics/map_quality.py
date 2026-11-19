@@ -3,6 +3,7 @@
 
     map_quality.py compare test.yaml reference.yaml [--max-angle 10] [--no-align]
     map_quality.py consistency [--results results/raw] --tag T [--group-by variant] [--json f] [--markdown f]
+    map_quality.py register plan.yaml slam_map.yaml --out data/bags/<bag>.reference.yaml
 
 `compare` aligns the test map to the reference (2D rotation + translation search on
 occupied cells, FFT cross-correlation per angle) and reports, on the reference grid:
@@ -175,9 +176,14 @@ def _rasterize(rows, cols, shape):
 
 
 # ---------------------------------------------------------------- alignment
-def align(test, ref, max_angle_deg=10.0, coarse_step=1.0, fine_step=0.1, pad_m=2.0):
-    """Rigid 2D transform taking test-map world coordinates to reference world coordinates."""
+def align(test, ref, max_angle_deg=10.0, coarse_step=1.0, fine_step=0.1, pad_m=2.0, pre=None, around_deg=0.0):
+    """Rigid 2D transform taking test-map world coordinates to reference world coordinates.
+
+    pre: optional affine (R, t) applied to the test points first; the returned transform is
+    relative to the pre-transformed points. around_deg: centre of the rotation search."""
     pts = occupied_points(test)
+    if pre is not None and len(pts):
+        pts = pts @ pre[0].T + pre[1]
     ref_pts = occupied_points(ref)
     if len(pts) == 0 or len(ref_pts) == 0:
         return (0.0, np.zeros(2), np.zeros(2)), 0.0
@@ -207,7 +213,7 @@ def align(test, ref, max_angle_deg=10.0, coarse_step=1.0, fine_step=0.1, pad_m=2
 
     best = (-1.0, 0.0, (0, 0))
     span = max_angle_deg
-    for deg in np.arange(-span, span + 1e-9, coarse_step):
+    for deg in np.arange(around_deg - span, around_deg + span + 1e-9, coarse_step):
         s, sh = score(math.radians(deg))
         if s > best[0]:
             best = (s, deg, sh)
@@ -222,6 +228,119 @@ def align(test, ref, max_angle_deg=10.0, coarse_step=1.0, fine_step=0.1, pad_m=2
     lx, ly = dcol * ref["res"], -drow * ref["res"]
     d = np.array([math.cos(oyaw) * lx - math.sin(oyaw) * ly, math.sin(oyaw) * lx + math.cos(oyaw) * ly])
     return (math.radians(deg), center, d), s
+
+
+# ---------------------------------------------------------------- registration
+def tf_affine(tf):
+    """(theta, center, d) -> (R, t) with p' = R p + t."""
+    theta, center, d = tf
+    R = rot(theta)
+    return R, center + d - R @ center
+
+
+def compose(a, b):
+    """Affine a after b."""
+    return a[0] @ b[0], a[0] @ b[1] + a[1]
+
+
+def downsample(m, k):
+    """Coarser map: a cell is occupied if any sub-cell is, else free if any is free."""
+    if k <= 1:
+        return m
+    cls = m["cls"]
+    h, w = cls.shape
+    H, W = -(-h // k), -(-w // k)
+    pad = np.full((H * k, W * k), UNKNOWN, dtype=np.int8)
+    pad[(H * k - h):, :w] = cls  # keep the bottom-left origin fixed
+    blocks = pad.reshape(H, k, W, k)
+    occ = (blocks == OCC).any(axis=(1, 3))
+    free = (blocks == FREE).any(axis=(1, 3))
+    out = np.full((H, W), UNKNOWN, dtype=np.int8)
+    out[free] = FREE
+    out[occ] = OCC
+    return {"cls": out, "res": m["res"] * k, "origin": list(m["origin"]), "path": m["path"]}
+
+
+def register(plan, slam, coarse_res=0.2, step_deg=2.0, around_deg=0.0, max_angle_deg=180.0):
+    """Place a plan (any frame) in a SLAM map's frame. Returns (affine, score, alternatives)."""
+    p_pts, s_pts = occupied_points(plan), occupied_points(slam)
+    if len(p_pts) == 0 or len(s_pts) == 0:
+        raise ValueError("both maps need occupied cells")
+    pre = (np.eye(2), s_pts.mean(axis=0) - p_pts.mean(axis=0))
+
+    kc = max(1, int(round(coarse_res / slam["res"])))
+    slam_c = downsample(slam, kc)
+    plan_c = downsample(plan, max(1, int(round(coarse_res / plan["res"]))))
+    extent = max(np.ptp(s_pts, axis=0).max(), np.ptp(p_pts, axis=0).max())
+    pad = extent / 2.0 + 1.0
+
+    # coarse: full rotation search, keep the best score per angle to report alternatives
+    scored = []
+    for deg in np.arange(around_deg - max_angle_deg, around_deg + max_angle_deg, step_deg):
+        tf, sc = align(plan_c, slam_c, max_angle_deg=0.0, coarse_step=1.0, fine_step=1.0,
+                       pad_m=pad, pre=pre, around_deg=float(deg))
+        scored.append((sc, float(deg), tf))
+    scored.sort(key=lambda x: -x[0])
+    sc, deg, tf = scored[0]
+    coarse = compose(tf_affine(tf), pre)
+
+    # fine: full resolution around the coarse result
+    tf2, score = align(plan, slam, max_angle_deg=step_deg, coarse_step=0.5, fine_step=0.05,
+                       pad_m=2.0 * coarse_res + 0.2, pre=coarse)
+    final = compose(tf_affine(tf2), coarse)
+
+    alternatives = []
+    for s2, d2, _ in scored[1:]:
+        diff = abs((d2 - deg + 180.0) % 360.0 - 180.0)
+        if diff > 10.0 and all(abs((d2 - a + 180.0) % 360.0 - 180.0) > 10.0 for _, a in alternatives):
+            alternatives.append((s2, d2))
+        if len(alternatives) == 2:
+            break
+    return final, score, {"coarse_best": (sc, deg), "alternatives": alternatives}
+
+
+def write_registered(plan, plan_yaml, affine, out_yaml):
+    """Write plan's image with an origin that places it in the SLAM frame."""
+    import shutil
+    R, t = affine
+    ox, oy, oyaw = plan["origin"]
+    o = R @ np.array([ox, oy]) + t
+    yaw = oyaw + math.atan2(R[1, 0], R[0, 0])
+    meta = _parse_yaml(plan_yaml)
+    src = str(meta["image"])
+    if not os.path.isabs(src):
+        src = os.path.join(os.path.dirname(os.path.abspath(plan_yaml)), src)
+    stem = out_yaml[:-5] if out_yaml.endswith(".yaml") else out_yaml
+    os.makedirs(os.path.dirname(os.path.abspath(stem)) or ".", exist_ok=True)
+    shutil.copy(src, stem + ".pgm")
+    with open(stem + ".yaml", "w") as f:
+        f.write(f"image: {os.path.basename(stem)}.pgm\nresolution: {plan['res']}\n"
+                f"origin: [{o[0]:.6f}, {o[1]:.6f}, {yaw:.9f}]\n"
+                f"negate: {int(meta.get('negate', 0))}\noccupied_thresh: {meta.get('occupied_thresh', 0.65)}\n"
+                f"free_thresh: {meta.get('free_thresh', 0.196)}\n")
+    return stem + ".yaml"
+
+
+def overlay_png(ref, slam, out_png):
+    """SLAM map in grey, reference walls in red."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    h, w = slam["cls"].shape
+    img = np.ones((h, w, 3))
+    img[slam["cls"] == FREE] = (1.0, 1.0, 1.0)
+    img[slam["cls"] == UNKNOWN] = (0.82, 0.82, 0.82)
+    img[slam["cls"] == OCC] = (0.15, 0.15, 0.15)
+    r, c = world_to_cell(slam, occupied_points(ref))
+    m = _rasterize(r, c, (h, w))
+    img[m] = (0.85, 0.1, 0.1)
+    fig, ax = plt.subplots(figsize=(max(4, w / 60), max(3, h / 60)))
+    ax.imshow(img, interpolation="nearest")
+    ax.set_title("SLAM map (grey) with registered reference walls (red)", fontsize=9)
+    ax.axis("off")
+    fig.tight_layout()
+    fig.savefig(out_png, dpi=150)
+    plt.close(fig)
 
 
 # ---------------------------------------------------------------- distances
@@ -402,6 +521,13 @@ def main():
     c.add_argument("--max-angle", type=float, default=10.0, help="rotation search range [deg]")
     c.add_argument("--no-align", action="store_true")
     c.add_argument("--max-dist", type=float, default=1.0, help="distance cap for wall errors [m]")
+    g = sub.add_parser("register", help="place a floor-plan map in a SLAM map's frame")
+    g.add_argument("plan", help="plan map .yaml (experiments/floorplan_to_map.py)")
+    g.add_argument("slam", help="a run's map.yaml from the bag the reference is for")
+    g.add_argument("--out", required=True, help="output .yaml, e.g. data/bags/corridor_01.reference.yaml")
+    g.add_argument("--around", type=float, default=0.0, help="centre of the rotation search [deg]")
+    g.add_argument("--max-angle", type=float, default=180.0, help="half-width of the rotation search [deg]")
+    g.add_argument("--no-overlay", action="store_true", help="do not write <out>.overlay.png")
     k = sub.add_parser("consistency")
     k.add_argument("--results", default="results/raw")
     k.add_argument("--tag", required=True)
@@ -416,6 +542,30 @@ def main():
                       not args.no_align, args.max_dist)
         json.dump(res, sys.stdout, indent=2)
         print()
+    elif args.cmd == "register":
+        plan, slam = load_map(args.plan), load_map(args.slam)
+        affine, score, info = register(plan, slam, around_deg=args.around, max_angle_deg=args.max_angle)
+        out = write_registered(plan, args.plan, affine, args.out)
+        ref = load_map(out)
+        res = compare(slam, ref, do_align=False)
+        deg = math.degrees(math.atan2(affine[0][1, 0], affine[0][0, 0]))
+        print(f"{out}: rotated {deg:.2f} deg, translated ({affine[1][0]:.2f}, {affine[1][1]:.2f}) m, "
+              f"match score {score:.2f}")
+        print(f"SLAM map vs reference: wall F1 (±1 cell) {res['occ_f1_1c']:.3f}, "
+              f"wall error {res['wall_error_m']:.3f} m, cell accuracy {res['cell_accuracy'] or 0:.3f}")
+        best = info["coarse_best"][0]
+        close = [(s, d) for s, d in info["alternatives"] if s > 0.9 * best]
+        if close:
+            print("WARNING: other orientations fit almost as well: "
+                  + ", ".join(f"{d:.0f} deg (score {s:.2f} vs {best:.2f})" for s, d in close)
+                  + ". Check the overlay; force one with --around DEG --max-angle 15.", file=sys.stderr)
+        if not args.no_overlay:
+            try:
+                png = out[:-5] + ".overlay.png"
+                overlay_png(ref, slam, png)
+                print(f"Overlay: {png}")
+            except ImportError:
+                pass
     else:
         rep = consistency(args.results, args.tag, args.max_angle, args.group_by)
         md = consistency_markdown(rep)
