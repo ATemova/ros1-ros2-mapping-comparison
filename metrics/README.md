@@ -13,7 +13,8 @@ Definitions of every metric: [docs/metrics.md](../docs/metrics.md).
 | `compare_groups.py` | Statistics across repeated runs, grouped by stack, RMW, distro, variant or condition: mean ± 95% CI, Mann-Whitney U, Cliff's delta, Kruskal-Wallis + Holm for 3+ groups, parameter identity. |
 | `sample_size.py` | Runs per group needed for each comparison, from pilot runs (`make sample-size`). |
 | `make_report.py` | Markdown report with tables, figures, map consistency and provenance (`make report`). |
-| `summarize_metrics.py`, `compare_runs.py` | Quick summaries of one run / one run per stack (system-wide CPU/memory). |
+| `paper_figures.py` | Publication figures (PDF/SVG) and LaTeX booktabs tables from `report.json` (`make paper-figures`). |
+| `summarize_metrics.py`, `compare_runs.py` | *Deprecated* (removed in v2.0.0): quick summaries of one run / one run per stack. Use `analyze_run.py` / `compare_groups.py`. |
 | `stats_utils.py`, `metrics_utils.py` | Helpers. |
 
 `compare_groups.py`, `summarize_metrics.py` and `compare_runs.py` need only the standard

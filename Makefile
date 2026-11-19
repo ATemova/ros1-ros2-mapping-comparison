@@ -9,6 +9,7 @@
 #   make long                            30-min synthetic loop bag, memory growth
 #   make report  TAG=<run_tag> [GROUP_BY=rmw]
 #   make sample-size TAG=<pilot_tag> [GROUP_BY=stack]   runs needed per comparison
+#   make paper-figures TAGS="<tag> <tag>"   PDF/SVG figures and LaTeX tables into paper/
 #   make pull VERSION=v0.3.0             use the published images of a release
 #   make lock                            pin base images by digest
 #   make check                           unit tests + lint + parameter/schema checks
@@ -43,7 +44,7 @@ MATRIX = BAG="$(BAG)" RUN_TAG="$(TAG)" ./experiments/run_matrix.sh
 IMAGE_REPO ?= ghcr.io/atemova/ros1-ros2-mapping-comparison
 
 .PHONY: help images image-ros1 image-ros2 synthetic experiment matrix rmw distros stress long \
-        report sample-size test lint check sample-bag dataset lock pull validate
+        report sample-size paper-figures test lint check sample-bag dataset lock pull validate interface
 
 help:  ## show this help
 	@grep -hE '^[a-z0-9_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  \033[1m%-12s\033[0m %s\n", $$1, $$2}'
@@ -110,6 +111,10 @@ sample-size:  ## runs needed per comparison, from pilot runs: TAG=<pilot> [GROUP
 	$(PYTHON) metrics/sample_size.py --tag "$(TAG)" --group-by "$(or $(GROUP_BY),stack)" \
 	  --power "$(or $(POWER),0.8)" $(if $(BASELINE),--baseline "$(BASELINE)")
 
+paper-figures:  ## PDF/SVG figures + LaTeX tables in paper/ from TAGS="<tag> ..." reports [METRICS=a,b]
+	@[ -n "$(TAGS)" ] || { echo 'set TAGS, e.g. make paper-figures TAGS="20261201_matrix 20261202_rmw"'; exit 1; }
+	$(PYTHON) metrics/paper_figures.py --tags $(TAGS) --out paper $(if $(METRICS),--metrics "$(METRICS)")
+
 validate:  ## check every run folder in results/raw against the schemas
 	$(PYTHON) experiments/validate_runs.py results/raw
 
@@ -121,7 +126,10 @@ lint:  ## shellcheck + parameter/mapping-table and schema checks
 	$(PYTHON) experiments/check_params.py --check-doc
 	$(PYTHON) experiments/validate_runs.py --self-test
 
-check: test lint  ## everything CI checks without ROS
+interface:  ## check the stable interface against docs/interface.json (UPDATE=1 to record additions)
+	$(PYTHON) experiments/check_interface.py $(if $(UPDATE),--update)
+
+check: test lint interface  ## everything CI checks without ROS
 
 sample-bag:  ## cut a short sample from BAG for CI / release assets (SECONDS=30)
 	$(PYTHON) experiments/cut_bag.py "$(BAG)" --seconds $(or $(SECONDS),30) --out data/bags/sample.bag
