@@ -51,16 +51,17 @@ Sensor data is recorded once on a real mobile robot in a controlled indoor envir
 |---|---|
 | `config/` | Shared SLAM parameters (`slam_toolbox.yaml`, loaded unchanged by both stacks), ROS1-only `gmapping.yaml`, ROS2 replay QoS overrides. |
 | `Makefile` | One-command entry points (`make help`). |
-| `docs/` | [Metrics](docs/metrics.md), [data format](docs/data-format.md), [reproducibility](docs/reproducibility.md), [release process](docs/release.md), [hardware template](docs/hardware.md), [parameter mapping](docs/parameter_mapping.md) (generated, checked in CI), [dataset and DOI guide](docs/dataset.md). |
+| `docs/` | [Metrics](docs/metrics.md), [data format](docs/data-format.md), [reproducibility](docs/reproducibility.md), [release process](docs/release.md), [hardware template](docs/hardware.md), [parameter mapping](docs/parameter_mapping.md) (generated, checked in CI), [dataset and DOI guide](docs/dataset.md), [stable interface](docs/interface.md) (`interface.json`, checked in CI). |
 | `schemas/` | JSON Schemas for the per-run files (`run_meta`, `run_metrics`, `run_manifest`, `effective_params`), checked in CI. |
 | `experiments/` | Run scripts (`run_ros1.sh`, `run_ros2.sh`, shared `common.sh`), batch runner `run_matrix.sh`, bag tools (`record_bag.sh`, `convert_bag.sh`, `inspect_bag.py`, `make_synthetic_bag.py`, `cut_bag.py`, `fetch_sample_bag.sh`), dataset packaging, run manifest, protocol notes. |
 | `ros1/` | ROS1 Noetic launch file (`slam_toolbox` or GMapping). |
 | `ros2/` | ROS2 launch file (`slam_toolbox`; plain node on Humble, lifecycle node from Jazzy on). |
 | `data/bags/` | Recorded bags for replay (git-ignored). |
 | `metrics/` | Loggers (resources, ROS timing events), per-run analysis (latency, trajectory ATE/RPE, map quality), repeated-run statistics. |
-| `tests/` | Unit tests (statistics and power, map quality, trajectory, latency, run analysis, data-format contract). |
+| `tests/` | Unit tests (statistics and power, map quality, trajectory, latency, run analysis, data-format contract, stable interface, publication output). |
 | `plots/` | Scripts that render CPU, memory and occupancy-grid map plots as PNGs. |
 | `results/raw/` | Per-run output (raw logs, `run_meta.json`, `run_metrics.json`, saved map, trajectory, effective parameters), one folder per run ID. |
+| `paper/` | Publication figures and LaTeX tables generated from reports (`make paper-figures`). |
 | `results/reports/`, `results/report.md` | Batch reports with tables and figures (`make report`); `results/report.md` is the latest. |
 | `docker/` | Dockerfiles for ROS1 Noetic and ROS2 (Humble or Jazzy; Fast DDS, Cyclone DDS, Zenoh) for amd64 and arm64, `build.sh`, base-image lock (`lock.sh`). |
 | `.github/workflows/` | CI: lint, unit and schema tests, ROS1 and ROS2 (Humble/Jazzy × Fast DDS/Cyclone DDS/Zenoh) replay runs on amd64 and arm64 with a synthetic bag and ground truth, comparison report, Docker end-to-end via `make` on both architectures; release workflow publishing multi-arch images to GHCR. |
@@ -77,7 +78,7 @@ Sensor data is recorded once on a real mobile robot in a controlled indoor envir
 | Python packages | `psutil`, `pandas`, `matplotlib` (`pip install -r requirements.txt`); bag tools: `rosbags` (`pip install -r experiments/requirements-bags.txt`, Python ≥ 3.10, included in the ROS2 image) |
 | Hardware | 2D LiDAR publishing on `/scan`, required only for recording bags and live runs |
 
-On ROS images, install the Python packages with apt instead: `apt-get install -y python3-psutil python3-numpy python3-yaml python3-pandas python3-matplotlib` (the Docker images already include them). `summarize_metrics.py`, `compare_runs.py` and `compare_groups.py` use only the standard library.
+On ROS images, install the Python packages with apt instead: `apt-get install -y python3-psutil python3-numpy python3-yaml python3-pandas python3-matplotlib` (the Docker images already include them). `compare_groups.py` uses only the standard library.
 
 The pipeline, metrics and analysis can be exercised without hardware.
 
@@ -189,12 +190,6 @@ python3 experiments/check_params.py --check-doc
 
 ## Analysis
 
-Summarize a run (standard library only — runs in any ROS image):
-
-```
-python3 metrics/summarize_metrics.py results/raw/ros1/<run_id>/cpu_mem.csv
-```
-
 Analyze one run again (e.g. with another reference):
 
 ```
@@ -230,10 +225,11 @@ make sample-size TAG=<pilot_tag>
 python3 metrics/sample_size.py --tag <pilot_tag> --stack ros2 --group-by rmw --planned-runs 8
 ```
 
-Compare a single ROS1 run against a single ROS2 run:
+Publication figures (PDF/SVG, single and double column) and LaTeX booktabs tables from one or more reports, into `paper/figures` and `paper/tables` ([paper/README.md](paper/README.md)):
 
 ```
-python3 metrics/compare_runs.py results/raw/ros1/<run_id>/cpu_mem.csv results/raw/ros2/<run_id>/cpu_mem.csv
+make paper-figures TAGS="<run_tag> <rmw_tag>"
+make paper-figures TAGS=<run_tag> METRICS=slam_cpu_mean,scan_to_map_latency_ms,ate_rmse_m
 ```
 
 Plot CPU / memory (needs `pandas` + `matplotlib`; pass a CSV path, or `--ros ros1|ros2` for the latest run):
@@ -256,6 +252,17 @@ Each experiment run generates a unique identifier, archives mapping parameters, 
 
 - CI replays a synthetic bag with ground truth through ROS1 and through ROS2 Humble/Jazzy with each RMW, on amd64 and arm64, asserts that maps are produced, that accuracy is within bounds and that every run file matches its schema, and runs the full Docker/`make` path end to end on both architectures. With a sample bag published as a release asset, CI also replays real robot data ([docs/dataset.md](docs/dataset.md)).
 - `make dataset` packages bags, references, parameters and results with checksums for Zenodo; [docs/dataset.md](docs/dataset.md) covers the sample bag, the dataset DOI and the code DOI.
+
+## Stable interface
+
+From v1.0.0, breaking changes need a major release. The stable surface is listed in [docs/interface.md](docs/interface.md) and checked in CI (`make interface`):
+
+- **Data formats:** the run-folder layout, `run_meta.json`, `run_metrics.json`, `run_manifest.json` and `effective_params.json` (`schemas/`, `schema_version` 1), the `report.json` keys, and the metric keys.
+- **Makefile:** the targets and variables listed by `make help`.
+- **Environment variables:** those of `run_ros1.sh`/`run_ros2.sh` and `run_matrix.sh`.
+- **CLIs:** `compare_groups.py`, `make_report.py`, `analyze_run.py`, `sample_size.py`, `map_quality.py compare|consistency`, `trajectory.py`, `validate_runs.py`, `cut_bag.py` and `make_synthetic_bag.py`.
+
+**Experimental (may change in a minor release):** floor-plan references (`floorplan_to_map.py`, `map_quality.py register`), the figure layout of `paper_figures.py`, two-machine and live modes, and GMapping. `summarize_metrics.py` and `compare_runs.py` are deprecated.
 
 ## Citation
 

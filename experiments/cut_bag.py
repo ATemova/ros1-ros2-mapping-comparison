@@ -15,12 +15,6 @@ import os
 import shutil
 import sys
 
-try:
-    from rosbags.rosbag1 import Reader, Writer
-except ImportError:
-    sys.stderr.write("ERROR: the 'rosbags' package is required (pip install rosbags).\n")
-    sys.exit(1)
-
 LATCHED = ("/tf_static",)
 
 
@@ -31,6 +25,12 @@ def main():
     ap.add_argument("--start", type=float, default=0.0, help="offset from the bag start (s)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
+
+    try:
+        from rosbags.rosbag1 import Reader, Writer
+    except ImportError:
+        sys.stderr.write("ERROR: the 'rosbags' package is required (pip install rosbags).\n")
+        sys.exit(1)
 
     if os.path.isdir(args.bag):
         sys.exit(f"{args.bag} is a ROS2 bag; convert it first: experiments/convert_bag.sh {args.bag}")

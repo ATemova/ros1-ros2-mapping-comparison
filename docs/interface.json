@@ -1,0 +1,435 @@
+{
+  "cli": {
+    "experiments/cut_bag.py": {
+      "options": [
+        "--out",
+        "--seconds",
+        "--start"
+      ],
+      "positionals": [
+        "bag"
+      ]
+    },
+    "experiments/make_synthetic_bag.py": {
+      "options": [
+        "--beams",
+        "--duration",
+        "--out",
+        "--path",
+        "--scan-hz"
+      ],
+      "positionals": []
+    },
+    "experiments/validate_runs.py": {
+      "options": [
+        "--self-test"
+      ],
+      "positionals": [
+        "paths"
+      ]
+    },
+    "metrics/analyze_run.py": {
+      "options": [
+        "--quiet",
+        "--ref-max-angle",
+        "--reference-map",
+        "--reference-traj"
+      ],
+      "positionals": [
+        "run_dir"
+      ]
+    },
+    "metrics/compare_groups.py": {
+      "options": [
+        "--algo",
+        "--arch",
+        "--bag",
+        "--baseline",
+        "--condition",
+        "--csv",
+        "--distro",
+        "--group-by",
+        "--include-failed",
+        "--json",
+        "--markdown",
+        "--mode",
+        "--require-identical-params",
+        "--results",
+        "--rmw",
+        "--stack",
+        "--tag",
+        "--trim-start",
+        "--variant"
+      ],
+      "positionals": []
+    },
+    "metrics/make_report.py": {
+      "options": [
+        "--baseline",
+        "--group-by",
+        "--latest",
+        "--out",
+        "--results",
+        "--stack",
+        "--tag",
+        "--title"
+      ],
+      "positionals": [
+        "filters"
+      ]
+    },
+    "metrics/map_quality.py compare": {
+      "options": [
+        "--max-angle",
+        "--max-dist",
+        "--no-align"
+      ],
+      "positionals": [
+        "test",
+        "reference"
+      ]
+    },
+    "metrics/map_quality.py consistency": {
+      "options": [
+        "--group-by",
+        "--json",
+        "--markdown",
+        "--max-angle",
+        "--results",
+        "--tag"
+      ],
+      "positionals": []
+    },
+    "metrics/sample_size.py": {
+      "options": [
+        "--algo",
+        "--alpha",
+        "--arch",
+        "--bag",
+        "--baseline",
+        "--condition",
+        "--distro",
+        "--group-by",
+        "--include-failed",
+        "--json",
+        "--markdown",
+        "--mode",
+        "--planned-runs",
+        "--power",
+        "--results",
+        "--rmw",
+        "--stack",
+        "--tag",
+        "--trim-start",
+        "--variant"
+      ],
+      "positionals": []
+    },
+    "metrics/trajectory.py error": {
+      "options": [
+        "--max-diff",
+        "--no-align"
+      ],
+      "positionals": [
+        "reference",
+        "estimate"
+      ]
+    },
+    "metrics/trajectory.py extract": {
+      "options": [
+        "--base-frame",
+        "--map-frame",
+        "--odom-frame",
+        "--rate"
+      ],
+      "positionals": [
+        "events",
+        "out"
+      ]
+    }
+  },
+  "env": {
+    "experiments/common.sh": [
+      "ALGO",
+      "BAG",
+      "CLOCK_WAIT",
+      "CONDITION",
+      "CPU_SET",
+      "DURATION",
+      "LOG_LATENCY",
+      "RATE",
+      "REFERENCE_MAP",
+      "REFERENCE_TRAJ",
+      "REQUIRE_MAP",
+      "REQUIRE_PARAMS",
+      "RMW",
+      "ROLE",
+      "ROS_DISTRO",
+      "RUN_TAG",
+      "SETTLE",
+      "STARTUP_WAIT"
+    ],
+    "experiments/run_matrix.sh": [
+      "ALGO",
+      "BASELINE",
+      "BUILD",
+      "CONDITION",
+      "COOLDOWN",
+      "CPUS",
+      "CPU_SET",
+      "DOCKER_ARGS",
+      "GROUP_BY",
+      "MEMORY",
+      "RATE",
+      "RUNS",
+      "RUN_TAG",
+      "SETTLE",
+      "VARIANTS"
+    ]
+  },
+  "makefile": {
+    "targets": [
+      "check",
+      "dataset",
+      "distros",
+      "experiment",
+      "help",
+      "image-ros1",
+      "image-ros2",
+      "images",
+      "interface",
+      "lint",
+      "lock",
+      "long",
+      "matrix",
+      "paper-figures",
+      "pull",
+      "report",
+      "rmw",
+      "sample-bag",
+      "sample-size",
+      "stress",
+      "synthetic",
+      "test",
+      "validate"
+    ],
+    "variables": [
+      "ALGO",
+      "BAG",
+      "BAGS",
+      "BASELINE",
+      "BUILD",
+      "CONDITION",
+      "COOLDOWN",
+      "CPUS",
+      "CPU_SET",
+      "DISTRO",
+      "DOCKER_ARGS",
+      "GROUP_BY",
+      "IMAGE_REPO",
+      "MEMORY",
+      "METRICS",
+      "NAME",
+      "POWER",
+      "PYTHON",
+      "RATE",
+      "RMW",
+      "RUNS",
+      "SECONDS",
+      "SETTLE",
+      "STACK",
+      "TAG",
+      "TAGS",
+      "UPDATE",
+      "VARIANTS",
+      "VERSION"
+    ]
+  },
+  "schemas": {
+    "effective_params.schema.json": {
+      "properties": {
+        "dump_ok": "boolean",
+        "effective": "object",
+        "mismatched": "object",
+        "missing": "array",
+        "schema_version": "integer",
+        "stack": null,
+        "use_sim_time": [
+          "boolean",
+          "null"
+        ]
+      },
+      "required": [
+        "dump_ok",
+        "effective",
+        "mismatched",
+        "missing",
+        "schema_version",
+        "stack"
+      ],
+      "schema_version": 1
+    },
+    "run_manifest.schema.json": {
+      "properties": {
+        "arch": [
+          "null",
+          "string"
+        ],
+        "condition": [
+          "null",
+          "string"
+        ],
+        "env": "object",
+        "experiment_id": [
+          "null",
+          "string"
+        ],
+        "git": "object",
+        "host": "object",
+        "image": "object",
+        "inputs": "object",
+        "schema_version": "integer",
+        "software": "object",
+        "variant": [
+          "null",
+          "string"
+        ]
+      },
+      "required": [
+        "env",
+        "experiment_id",
+        "git",
+        "host",
+        "image",
+        "inputs",
+        "schema_version",
+        "software"
+      ],
+      "schema_version": 1
+    },
+    "run_meta.schema.json": {
+      "properties": {
+        "algo": null,
+        "arch": "string",
+        "bag_exit_code": [
+          "integer",
+          "null"
+        ],
+        "bag_id": [
+          "null",
+          "string"
+        ],
+        "bag_path": [
+          "null",
+          "string"
+        ],
+        "condition": "string",
+        "cpu_set": [
+          "null",
+          "string"
+        ],
+        "duration_s": [
+          "null",
+          "number"
+        ],
+        "exit_status": "integer",
+        "experiment_id": "string",
+        "finished_at": "string",
+        "git": "object",
+        "host": "object",
+        "latency_events": [
+          "integer",
+          "null"
+        ],
+        "map_received": "boolean",
+        "map_saved": "boolean",
+        "metrics_samples": "integer",
+        "mode": null,
+        "params_file": "string",
+        "params_ok": "boolean",
+        "pose_graph_saved": "boolean",
+        "rate": [
+          "null",
+          "number"
+        ],
+        "resources": "object",
+        "rmw": "string",
+        "rmw_implementation": [
+          "null",
+          "string"
+        ],
+        "role": null,
+        "ros_distro": "string",
+        "ros_domain_id": [
+          "null",
+          "string"
+        ],
+        "ros_master_uri": [
+          "null",
+          "string"
+        ],
+        "run_tag": [
+          "null",
+          "string"
+        ],
+        "scans_expected": [
+          "integer",
+          "null"
+        ],
+        "schema_version": "integer",
+        "settle_s": "number",
+        "stack": null,
+        "started_at": "string",
+        "use_sim_time": "boolean",
+        "variant": "string"
+      },
+      "required": [
+        "condition",
+        "exit_status",
+        "experiment_id",
+        "finished_at",
+        "git",
+        "host",
+        "mode",
+        "resources",
+        "role",
+        "ros_distro",
+        "schema_version",
+        "stack",
+        "started_at"
+      ],
+      "schema_version": 1
+    },
+    "run_metrics.schema.json": {
+      "properties": {
+        "algo": [
+          "null",
+          "string"
+        ],
+        "errors": "object",
+        "latency": "object",
+        "map": "object",
+        "network": "object",
+        "processes": "object",
+        "run_dir": "string",
+        "schema_version": "integer",
+        "stack": [
+          "null",
+          "string"
+        ],
+        "summary": "object",
+        "system": [
+          "null",
+          "object"
+        ],
+        "trajectory": "object"
+      },
+      "required": [
+        "run_dir",
+        "schema_version",
+        "summary"
+      ],
+      "schema_version": 1
+    }
+  }
+}

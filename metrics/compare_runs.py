@@ -52,4 +52,6 @@ def main():
     print_comparison(ros1_stats, ros2_stats)
 
 if __name__ == "__main__":
+    print("compare_runs.py is deprecated and will be removed in v2.0.0; use metrics/compare_groups.py "
+          "(docs/interface.md).", file=sys.stderr)
     main()

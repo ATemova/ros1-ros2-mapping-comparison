@@ -10,7 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Floor-plan references: `experiments/floorplan_to_map.py` turns a plan image into an occupancy grid (scale from metres per pixel or one measured distance, crop, room seeds, wall surfaces only); `map_quality.py register` places it in a bag's SLAM map frame (full rotation search, coarse to fine), reports the fit, warns about near-symmetric alternatives and writes an overlay PNG.
+- Publication output (#22): `metrics/paper_figures.py` and `make paper-figures TAGS="..."` turn one or more `report.json` files into vector figures (PDF and SVG, single and double column, colour-blind-safe palette, embedded TrueType fonts) and LaTeX booktabs tables (mean ± 95% CI, difference, Holm-adjusted p, Cliff's δ, Kruskal-Wallis for 3+ groups) in `paper/figures` and `paper/tables`. Per-metric strip/box plots, a multi-metric overview and a Cliff's δ effect plot. Output is byte-identical for the same input; `paper/generated.json` records each report's SHA-256.
+- Stable interface (#27): `docs/interface.md` declares what v1.0.0 freezes (data formats and `report.json` keys, make targets and variables, the runners' environment variables, the CLIs of the analysis scripts), what is experimental and the deprecation policy. `docs/interface.json` records it; `experiments/check_interface.py` / `make interface` (part of `make check` and CI) fails on a breaking change.
 - Release gate: the *Release images* workflow first checks the milestone named like the release and every earlier version milestone; with open issues it turns the release back into a draft and publishes nothing. `docs/release.md` describes the milestones and the release checklist.
+
+### Deprecated
+
+- `metrics/summarize_metrics.py` and `metrics/compare_runs.py` print a deprecation warning and will be removed in v2.0.0; use `analyze_run.py` and `compare_groups.py`.
 
 ## [0.3.0] - 2026-11-05
 

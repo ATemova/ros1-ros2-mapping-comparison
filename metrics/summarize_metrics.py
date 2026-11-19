@@ -40,4 +40,6 @@ def main():
 
 
 if __name__ == "__main__":
+    print("summarize_metrics.py is deprecated and will be removed in v2.0.0; use metrics/analyze_run.py "
+          "(docs/interface.md).", file=sys.stderr)
     main()
