@@ -1,0 +1,351 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and unit tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: shellcheck
+        run: shellcheck --severity=warning experiments/*.sh docker/*.sh
+      - name: bash syntax
+        run: for f in experiments/*.sh; do bash -n "$f"; done
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: python compile
+        run: python -m py_compile metrics/*.py plots/*.py experiments/*.py tests/*.py ros2/launch/mapping.launch.py
+      - name: yaml parse
+        run: |
+          python -m pip install --quiet pyyaml
+          python - <<'PY'
+          import glob, yaml
+          for f in sorted(glob.glob("config/*.yaml")):
+              data = yaml.safe_load(open(f))
+              assert isinstance(data, dict), f
+              print("ok", f)
+          st = yaml.safe_load(open("config/slam_toolbox.yaml"))
+          nested = [k for k, v in st.items() if isinstance(v, (dict, list))]
+          assert not nested, f"slam_toolbox.yaml must be flat, nested keys: {nested}"
+          PY
+      - name: unit tests
+        run: |
+          python -m pip install --quiet numpy pillow
+          python -m unittest discover -s tests -v
+      - name: parameter files and mapping table
+        run: python experiments/check_params.py --check-doc
+      - name: Makefile targets resolve
+        run: |
+          for t in help experiment matrix rmw distros long report sample-size lock validate; do make -n $t TAG=x > /dev/null; done
+          make -n pull VERSION=v0.0.0 > /dev/null
+          make -n experiment STACK=ros2 ALGO=slam_toolbox RUNS=5 BAG=data/bags/x.bag TAG=x
+      - name: data-format schemas
+        run: python experiments/validate_runs.py --self-test
+
+  pipeline-smoke:
+    name: Analysis pipeline (no ROS)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: install deps
+        run: python -m pip install --quiet -r metrics/requirements.txt
+      - name: log -> summarize -> plot
+        run: |
+          set -e
+          RUN=results/raw/ros2/ci_smoke
+          mkdir -p "$RUN"
+          timeout 6 python metrics/cpu_memory_logger.py \
+            --output "$RUN/cpu_mem.csv" --experiment_id ci_smoke \
+            --ros_version ROS2 --interval 1 || true
+          test -s "$RUN/cpu_mem.csv"
+          python metrics/summarize_metrics.py "$RUN/cpu_mem.csv"
+          python plots/plot_cpu.py "$RUN/cpu_mem.csv"
+          python plots/plot_memory.py "$RUN/cpu_mem.csv"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pipeline-smoke-plots
+          path: results/raw/ros2/ci_smoke/*.png
+          if-no-files-found: error
+
+  synthetic-bag:
+    name: Synthetic bag (generate, convert, validate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: install rosbags
+        run: python -m pip install --quiet -r experiments/requirements-bags.txt
+      - name: generate and convert
+        run: |
+          set -e
+          python experiments/make_synthetic_bag.py --out data/bags/synthetic.bag
+          ./experiments/convert_bag.sh data/bags/synthetic.bag
+          python experiments/inspect_bag.py data/bags/synthetic.bag
+          python experiments/inspect_bag.py data/bags/synthetic
+      - uses: actions/upload-artifact@v7
+        with:
+          name: synthetic-bag
+          path: data/bags/
+          if-no-files-found: error
+
+  ros1:
+    name: ROS1 live + replay (noetic, ${{ matrix.arch }})
+    needs: synthetic-bag
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ros:noetic
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: install git for checkout
+        run: apt-get update && apt-get install -y git
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: synthetic-bag
+          path: data/bags/
+      - name: install dependencies
+        run: apt-get install -y python3-psutil python3-numpy python3-yaml python3-matplotlib ros-noetic-slam-toolbox ros-noetic-slam-gmapping ros-noetic-map-server
+      - name: start from an empty results folder
+        run: rm -rf results/raw results/reports results/report.md
+      - name: live run (no sensor, short)
+        run: |
+          chmod +x experiments/*.sh
+          DURATION=8 ./experiments/run_ros1.sh
+      - name: replay slam_toolbox
+        run: BAG=data/bags/synthetic.bag RATE=2.0 RUN_TAG=ci ./experiments/run_ros1.sh
+      - name: replay gmapping
+        run: ALGO=gmapping BAG=data/bags/synthetic.bag RATE=2.0 RUN_TAG=ci_gmapping ./experiments/run_ros1.sh
+      - name: verify output
+        run: |
+          set -e
+          for d in results/raw/ros1/*/; do
+            test -s "$d/cpu_mem.csv"
+            test -s "$d/run_meta.json"
+          done
+          python3 - <<'PY'
+          import glob, json
+          metas = [json.load(open(p)) for p in glob.glob("results/raw/ros1/*/run_meta.json")]
+          assert all(m["params_ok"] and m["metrics_samples"] > 0 for m in metas), metas
+          assert all(m["arch"] == "${{ matrix.arch }}" for m in metas), [m["arch"] for m in metas]
+          replays = [m for m in metas if m["mode"] == "replay"]
+          assert len(replays) == 2, replays
+          assert all(m["map_saved"] and m["exit_status"] == 0 for m in replays), replays
+          assert any(m["algo"] == "slam_toolbox" and m["pose_graph_saved"] for m in replays), replays
+          print("ok", [(m["algo"], m["experiment_id"]) for m in replays])
+          # synthetic bag: ground truth is known, so the new metrics must exist and be sane
+          for m in replays:
+              r = json.load(open(f"results/raw/{m['stack']}/{m['experiment_id']}/run_metrics.json"))
+              s = r["summary"]
+              print(m["algo"], json.dumps(s, indent=1, sort_keys=True))
+              assert not r.get("errors"), r.get("errors")
+              for k in ("slam_cpu_mean", "slam_rss_peak_mb", "scan_to_map_latency_ms", "map_period_s",
+                        "time_to_first_map_s", "ate_rmse_m", "rpe_trans_rmse_m", "map_wall_f1", "map_cell_accuracy"):
+                  assert k in s, (m["algo"], k)
+              assert s["scan_drop_rate"] < 0.05, s["scan_drop_rate"]
+              assert s["ate_rmse_m"] < 0.5, s["ate_rmse_m"]
+              assert s["map_wall_f1"] > 0.5, s["map_wall_f1"]
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: results-ros1-${{ matrix.arch }}
+          path: results/raw/ros1/
+
+  ros2:
+    name: ROS2 ${{ matrix.distro }} / ${{ matrix.rmw }} replay (${{ matrix.arch }})
+    needs: synthetic-bag
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    container: ros:${{ matrix.distro }}
+    # rmw_zenoh binaries are newer than the rest; a missing package must not block the others
+    continue-on-error: ${{ matrix.rmw == 'zenoh' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: [humble, jazzy]
+        rmw: [fastrtps, cyclonedds, zenoh]
+        arch: [amd64, arm64]
+        exclude:
+          - {arch: arm64, rmw: cyclonedds}
+          - {arch: arm64, rmw: zenoh}
+    steps:
+      - name: install git for checkout
+        run: apt-get update && apt-get install -y git
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: synthetic-bag
+          path: data/bags/
+      - name: install dependencies
+        run: |
+          D=${{ matrix.distro }}
+          apt-get install -y python3-psutil python3-numpy python3-yaml python3-matplotlib \
+            ros-$D-slam-toolbox ros-$D-nav2-map-server ros-$D-rmw-fastrtps-cpp ros-$D-rmw-cyclonedds-cpp
+          if [ "${{ matrix.rmw }}" = zenoh ]; then apt-get install -y ros-$D-rmw-zenoh-cpp; fi
+      - name: start from an empty results folder
+        run: rm -rf results/raw results/reports results/report.md
+      - name: live run (no sensor, short)
+        if: matrix.distro == 'humble' && matrix.rmw == 'fastrtps' && matrix.arch == 'amd64'
+        run: |
+          chmod +x experiments/*.sh
+          DURATION=8 ./experiments/run_ros2.sh
+      - name: replay slam_toolbox
+        run: |
+          chmod +x experiments/*.sh
+          RMW=${{ matrix.rmw }} BAG=data/bags/synthetic RATE=2.0 RUN_TAG=ci ./experiments/run_ros2.sh
+      - name: verify output
+        run: |
+          set -e
+          python3 - <<'PY'
+          import glob, json
+          metas = [json.load(open(p)) for p in glob.glob("results/raw/ros2/*/run_meta.json")]
+          assert all(m["params_ok"] and m["metrics_samples"] > 0 for m in metas), metas
+          replays = [m for m in metas if m["mode"] == "replay"]
+          assert len(replays) == 1, replays
+          r = replays[0]
+          assert r["map_saved"] and r["pose_graph_saved"] and r["exit_status"] == 0, r
+          assert r["ros_distro"] == "${{ matrix.distro }}", r["ros_distro"]
+          assert r["rmw"].startswith("rmw_${{ matrix.rmw }}"), r["rmw"]
+          assert r["arch"] == "${{ matrix.arch }}", r["arch"]
+          for name in ("run_manifest.json", "run_metrics.json"):
+              json.load(open(f"results/raw/ros2/{r['experiment_id']}/{name}"))
+          print("ok", r["experiment_id"], r["variant"])
+          # synthetic bag: ground truth is known, so the new metrics must exist and be sane
+          m = json.load(open(f"results/raw/ros2/{r['experiment_id']}/run_metrics.json"))
+          s = m["summary"]
+          print(json.dumps(s, indent=1, sort_keys=True))
+          assert not m.get("errors"), m.get("errors")
+          for k in ("slam_cpu_mean", "slam_rss_peak_mb", "scan_to_map_latency_ms", "map_period_s",
+                    "time_to_first_map_s", "ate_rmse_m", "rpe_trans_rmse_m", "map_wall_f1", "map_cell_accuracy"):
+              assert k in s, k
+          assert s["scan_drop_rate"] < 0.05, s["scan_drop_rate"]
+          assert s["ate_rmse_m"] < 0.5, s["ate_rmse_m"]
+          assert s["map_wall_f1"] > 0.5, s["map_wall_f1"]
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: results-ros2-${{ matrix.distro }}-${{ matrix.rmw }}-${{ matrix.arch }}
+          path: results/raw/ros2/
+
+  compare:
+    name: Compare stacks, RMWs and distros; build report
+    needs: [ros1, ros2]
+    if: ${{ !cancelled() && needs.ros1.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: results-ros1-*
+          merge-multiple: true
+          path: results/raw/ros1/
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: results-ros2-*
+          merge-multiple: true
+          path: results/raw/ros2/
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: statistics
+        run: |
+          python -m pip install --quiet numpy pyyaml matplotlib
+          python experiments/validate_runs.py results/raw
+          python metrics/compare_groups.py --tag ci --arch amd64 --variant ros1-noetic,ros2-humble-fastrtps \
+            --require-identical-params --markdown stack.md
+          python metrics/compare_groups.py --tag ci --arch amd64 --stack ros2 --distro humble --group-by rmw \
+            --markdown rmw.md
+          python metrics/compare_groups.py --tag ci --arch amd64 --stack ros2 --rmw rmw_fastrtps_cpp \
+            --group-by ros_distro --markdown distro.md
+          python metrics/compare_groups.py --tag ci --variant ros2-humble-fastrtps --group-by arch \
+            --markdown arch.md
+          cat stack.md rmw.md distro.md arch.md >> "$GITHUB_STEP_SUMMARY"
+      - name: report with figures
+        run: |
+          python metrics/make_report.py --tag ci --group-by variant --baseline ros1-noetic \
+            --out results/reports/ci --latest results/report.md -- --arch amd64
+          test -s results/reports/ci/figures/metrics.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: report
+          path: |
+            results/report.md
+            results/reports/ci/
+            results/raw/*/*/map.*
+            results/raw/*/*/trajectory.tum
+            results/raw/*/*/run_metrics.json
+            results/raw/*/*/run_manifest.json
+
+  docker-e2e:
+    name: Docker end to end, ${{ matrix.arch }} (make, run_matrix, report; sample bag if configured)
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      SAMPLE_BAG_URL: ${{ vars.SAMPLE_BAG_URL }}
+      SAMPLE_BAG_SHA256: ${{ vars.SAMPLE_BAG_SHA256 }}
+      COOLDOWN: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - name: start from an empty results folder
+        run: rm -rf results/raw results/reports results/report.md
+      - name: build images
+        run: make images DISTRO=humble
+      - name: bag tooling in the ROS2 image
+        run: |
+          docker run --rm -v "$PWD":/work -w /work ros2-mapping:humble bash -c \
+            "python3 experiments/make_synthetic_bag.py --out /tmp/s.bag && rosbags-convert --src /tmp/s.bag --dst /tmp/s --dst-version 8 && python3 experiments/inspect_bag.py /tmp/s"
+      - name: synthetic bag, ROS1 vs ROS2 via make
+        run: |
+          make synthetic
+          make matrix RUNS=1 RATE=2.0 TAG=e2e
+          test -s results/reports/e2e/report.md
+          test -s results/report.md
+          python3 experiments/validate_runs.py results/raw
+      - name: real sample bag (release asset)
+        if: env.SAMPLE_BAG_URL != ''
+        run: |
+          ./experiments/fetch_sample_bag.sh
+          make matrix RUNS=1 BAG=data/bags/sample.bag TAG=sample
+          test -s results/reports/sample/report.md
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: docker-e2e-report-${{ matrix.arch }}
+          path: |
+            results/report.md
+            results/reports/
+
+  docker-build-jazzy:
+    name: Build the Jazzy image (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+      - name: build
+        run: make image-ros2 DISTRO=jazzy
+      - name: bag tooling and RMWs present
+        run: |
+          docker run --rm -v "$PWD":/work -w /work ros2-mapping:jazzy bash -c \
+            "python3 experiments/make_synthetic_bag.py --out /tmp/s.bag && rosbags-convert --src /tmp/s.bag --dst /tmp/s --dst-version 8 \
+             && python3 experiments/inspect_bag.py /tmp/s && ros2 pkg prefix rmw_cyclonedds_cpp && ros2 pkg prefix slam_toolbox"
