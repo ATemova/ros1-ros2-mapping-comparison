@@ -1,6 +1,8 @@
 name: Release images
 
-# Builds the three experiment images for amd64 and arm64 with base images pinned by
+# Release gate first: a release whose milestone (or any earlier one) still has open
+# issues is turned back into a draft and nothing is published (docs/release.md).
+# Then builds the three experiment images for amd64 and arm64 with base images pinned by
 # digest, pushes them to GHCR, and attaches images.lock (base and image digests) to the
 # release. Reproduce a release exactly with: make pull VERSION=<tag>
 
@@ -16,6 +18,7 @@ on:
 permissions:
   contents: write
   packages: write
+  issues: read
 
 concurrency:
   group: images-${{ github.event.release.tag_name || inputs.version }}
@@ -25,8 +28,48 @@ env:
   VERSION: ${{ github.event.release.tag_name || inputs.version }}
 
 jobs:
+  gate:
+    name: Release gate (milestones up to ${{ github.event.release.tag_name || inputs.version }} closed)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: check open issues in this and earlier milestones
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IS_RELEASE: ${{ github.event_name == 'release' }}
+        run: |
+          set -euo pipefail
+          tag="$VERSION"
+          blocking=""
+          while IFS=$'\t' read -r number title open; do
+            [ "$open" -gt 0 ] || continue
+            first="$(printf '%s\n%s\n' "$title" "$tag" | sort -V | head -1)"
+            [ "$first" = "$title" ] || continue
+            issues="$(gh api "repos/$GITHUB_REPOSITORY/issues?milestone=$number&state=open&per_page=100" \
+              --jq '.[] | "  #\(.number) \(.title)"')"
+            blocking="$blocking"$'\n'"$title ($open open):"$'\n'"$issues"
+          done < <(gh api "repos/$GITHUB_REPOSITORY/milestones?state=open&per_page=100" --paginate \
+                     --jq '.[] | select(.title | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")) | "\(.number)\t\(.title)\t\(.open_issues)"')
+          if [ -n "$blocking" ]; then
+            {
+              echo "## Release $tag blocked"
+              echo
+              echo "These milestones still have open issues:"
+              echo '```'
+              echo "$blocking"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Release $tag is blocked by open issues:$blocking"
+            if [ "$IS_RELEASE" = "true" ]; then
+              gh release edit "$tag" --draft=true -R "$GITHUB_REPOSITORY"
+              echo "The release was turned back into a draft. Close the issues, then publish it again."
+            fi
+            exit 1
+          fi
+          echo "No open issues in milestones up to $tag."
+
   build:
     name: ${{ matrix.stack }}-${{ matrix.distro }} (amd64 + arm64)
+    needs: gate
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

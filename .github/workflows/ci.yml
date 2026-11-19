@@ -40,7 +40,7 @@ jobs:
           PY
       - name: unit tests
         run: |
-          python -m pip install --quiet numpy
+          python -m pip install --quiet numpy pillow
           python -m unittest discover -s tests -v
       - name: parameter files and mapping table
         run: python experiments/check_params.py --check-doc

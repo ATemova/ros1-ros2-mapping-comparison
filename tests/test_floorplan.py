@@ -90,8 +90,8 @@ class FloorplanTest(unittest.TestCase):
         self.assertEqual(img[2, 10], UNKNOWN)
 
     def test_register_recovers_rotation(self):
-        bag = os.path.join(self.d, "s.bag")
-        self.run_py("experiments/make_synthetic_bag.py", "--out", bag)
+        x0, y0, _, _, _ = synth.pose_at(0.0)
+        synth.write_reference_map(os.path.join(self.d, "s"), x0, y0)
         plan_png = os.path.join(self.d, "plan.png")
         draw_plan(plan_png, angle_deg=37.0)
         self.run_py("experiments/floorplan_to_map.py", plan_png, "--meters-per-pixel", "0.02",

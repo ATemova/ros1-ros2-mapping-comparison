@@ -118,10 +118,25 @@ alignment transform. Distances are capped at 1 m.
 Reference options:
 
 - **Synthetic bag**: `data/bags/synthetic.reference.yaml` (the floor plan of the simulated room).
-- **Floor plan**: rasterize it to a map_server map (walls black, free white, unknown grey,
-  resolution and origin in the .yaml), save as `data/bags/<bag>.reference.yaml` or pass
-  `REFERENCE_MAP=...`. If its frame is not the SLAM map frame, increase the rotation search
-  with `analyze_run.py --ref-max-angle 180`.
+- **Floor plan** (any image; export a PDF page to PNG first):
+  1. Convert it once, with its scale either known or from one measured distance:
+     ```
+     python3 experiments/floorplan_to_map.py plan.png --meters-per-pixel 0.02 --out data/floorplan/office
+     python3 experiments/floorplan_to_map.py plan.png --scale 120,340,1720,340,16.0 --out data/floorplan/office
+     ```
+     Dark pixels are walls; free space is the largest enclosed area, or the rooms you mark
+     with `--seed x,y` (one per room the robot saw). `--crop x0,y0,x1,y1` keeps only the
+     mapped part. Only wall surfaces facing free space are kept, as a LiDAR sees them.
+  2. Place it in each bag's SLAM map frame, using any run's saved map of that bag:
+     ```
+     python3 metrics/map_quality.py register data/floorplan/office.yaml results/raw/ros1/<run>/map.yaml --out data/bags/<bag>.reference.yaml
+     ```
+     It searches all rotations (coarse, then fine at full resolution), prints the fit
+     (wall F1, wall error) and writes `<bag>.reference.overlay.png`; check it. If another
+     orientation fits almost as well (symmetric corridors), it warns; force the right one with
+     `--around DEG --max-angle 15`.
+  3. Re-analyze runs of that bag: `python3 metrics/analyze_run.py results/raw/<stack>/<run>`
+     (new runs pick the reference up automatically).
 
 **Cross-run consistency** needs no reference: `map_quality.py consistency --tag T` compares
 all pairs of saved maps in a batch (within ROS1, within ROS2, ROS1 vs ROS2). `run_matrix.sh`
