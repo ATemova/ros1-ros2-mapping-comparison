@@ -15,7 +15,8 @@ start), which analyze_run.py picks up automatically:
 Usage: make_synthetic_bag.py [--out data/bags/synthetic.bag]
        make_synthetic_bag.py --out data/bags/long30.bag --path loop --duration 1800
        make_synthetic_bag.py --out data/bags/fast40.bag --scan-hz 40 --beams 1080
-Convert to ROS2 with experiments/convert_bag.sh. Needs `rosbags` and `numpy`.
+Convert to ROS2 with experiments/convert_bag.sh. Needs `rosbags` and `numpy` (importing
+the module for its geometry, as the tests do, needs only numpy).
 """
 
 import argparse
@@ -26,12 +27,6 @@ from pathlib import Path
 
 import numpy as np
 
-try:
-    from rosbags.rosbag1 import Writer
-    from rosbags.typesys import Stores, get_types_from_msg, get_typestore
-except ImportError:
-    sys.stderr.write("ERROR: the 'rosbags' package is required (pip install rosbags).\n")
-    sys.exit(1)
 
 T0_NS = 1_700_000_000 * 1_000_000_000
 SCAN_HZ = 10.0
@@ -187,6 +182,12 @@ def main():
         print(f"Refusing to overwrite {args.out}", file=sys.stderr)
         sys.exit(1)
     args.out.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from rosbags.rosbag1 import Writer
+        from rosbags.typesys import Stores, get_types_from_msg, get_typestore
+    except ImportError:
+        sys.exit("ERROR: the 'rosbags' package is required (pip install rosbags).")
 
     ts = get_typestore(Stores.ROS1_NOETIC)
     if "tf2_msgs/msg/TFMessage" not in ts.types:
